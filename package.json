@@ -2,7 +2,7 @@
   "name": "claude-code-fuel-gauge",
   "displayName": "Claude Code Fuel Gauge",
   "description": "A context meter for your context window",
-  "version": "0.5.1",
+  "version": "0.6.1",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
   "repository": {
@@ -52,6 +52,11 @@
           "type": "number",
           "default": 18000,
           "description": "Estimated system token overhead (system prompt, tools, MCP, CLAUDE.md). These tokens are invisible to the statusline but consume context. Increase if Fuel Gauge underreports compared to Claude Code's 'Context low' warning."
+        },
+        "fuel-gauge.cacheTTL": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Prompt-cache TTL in seconds. Leave null to auto-detect from cache behavior. Common values: 300 (5 min, Pro/API), 3600 (1 hour, Max main agent)."
         }
       }
     }

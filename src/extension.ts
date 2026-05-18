@@ -14,6 +14,11 @@ interface ContextStatus {
   model: string;
   session_id: string;
   timestamp: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  detected_ttl?: number;
+  last_api_call_ts?: number;
+  rate_limit_5h_pct?: number;
 }
 
 const BRIDGE_SCRIPT = `#!/bin/bash
@@ -33,7 +38,7 @@ if [ -z "$session_id" ]; then
   exit 0
 fi
 
-echo "$input" | python3 -c "
+echo "$input" | BD_SESSION_ID="$session_id" BD_DIR="$BD_DIR" python3 -c "
 import sys, json, time, os
 
 data = json.load(sys.stdin)
@@ -73,26 +78,83 @@ else:
 ws = data.get('workspace', {})
 project_dir = ws.get('project_dir', '') or data.get('cwd', '')
 
+# Cache TTL detection — read previous file for prior state
+bd_dir = os.environ.get('BD_DIR', '')
+session_id = os.environ.get('BD_SESSION_ID', '')
+prev_total_in = 0
+prev_detected_ttl = 0
+prev_last_api_call_ts = 0
+if bd_dir and session_id:
+    prev_file = os.path.join(bd_dir, session_id + '.json')
+    try:
+        with open(prev_file) as f:
+            prev = json.load(f)
+            prev_total_in = prev.get('total_input_tokens', 0) or 0
+            prev_detected_ttl = prev.get('detected_ttl', 0) or 0
+            prev_last_api_call_ts = prev.get('last_api_call_ts', 0) or 0
+    except Exception:
+        pass
+
+now = time.time()
+total_in_now = cw.get('total_input_tokens', 0) or 0
+api_call_happened = total_in_now > prev_total_in
+
+if not cu:
+    # /compact wiped current_usage — reset cache state
+    detected_ttl = 0
+    last_api_call_ts = 0
+elif api_call_happened:
+    gap = (now - prev_last_api_call_ts) if prev_last_api_call_ts > 0 else 0
+    last_api_call_ts = now
+    detected_ttl = prev_detected_ttl
+    # Upgrade: cache survived past 5m → must be 1h TTL
+    if gap > 310 and cache_read > 0:
+        detected_ttl = 3600
+    # Downgrade: had 1h, but a 6–55m gap produced a cache miss
+    elif detected_ttl == 3600 and 360 < gap < 3300 and cache_read == 0 and cache_create > 0:
+        detected_ttl = 300
+else:
+    last_api_call_ts = prev_last_api_call_ts
+    detected_ttl = prev_detected_ttl
+
+# Rate limit pass-through (defensive — field may be absent)
+rate_limit_5h_pct = -1
+try:
+    rate_limit_5h_pct = data.get('rate_limits', {}).get('five_hour', {}).get('used_percentage', -1)
+    if rate_limit_5h_pct is None:
+        rate_limit_5h_pct = -1
+except Exception:
+    rate_limit_5h_pct = -1
+
 output = {
     'cwd': data.get('cwd', ''),
     'project_dir': project_dir,
     'used_percentage': used_pct,
     'remaining_percentage': remaining_pct,
-    'total_input_tokens': cw.get('total_input_tokens', 0),
+    'total_input_tokens': total_in_now,
     'total_output_tokens': cw.get('total_output_tokens', 0),
     'context_window_size': window_size,
     'model': data.get('model', {}).get('id', 'unknown') if isinstance(data.get('model'), dict) else data.get('model', 'unknown'),
     'session_id': data.get('session_id', ''),
-    'timestamp': time.time()
+    'timestamp': now,
+    'cache_read_input_tokens': cache_read,
+    'cache_creation_input_tokens': cache_create,
+    'detected_ttl': detected_ttl,
+    'last_api_call_ts': last_api_call_ts,
+    'rate_limit_5h_pct': rate_limit_5h_pct,
 }
 
 print(json.dumps(output, indent=2))
-" > "$BD_DIR/$session_id.json" 2>>"$BD_LOG"
+" > "$BD_DIR/$session_id.json.tmp" 2>>"$BD_LOG" && mv "$BD_DIR/$session_id.json.tmp" "$BD_DIR/$session_id.json"
 `;
 
 let statusBarItem: vscode.StatusBarItem;
+let cacheStatusBarItem: vscode.StatusBarItem;
 let pollTimer: NodeJS.Timeout | undefined;
+let countdownTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
+let cachedData: ContextStatus | undefined;
+const DEFAULT_TTL = 300;
 
 // Terminal Shell Integration tracking (VS Code 1.93+)
 let trackedSessionId: string | undefined;
@@ -198,7 +260,14 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.tooltip = 'Claude Code Fuel Gauge';
   context.subscriptions.push(statusBarItem);
 
+  cacheStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    99
+  );
+  context.subscriptions.push(cacheStatusBarItem);
+
   startPolling();
+  startCountdown();
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -417,53 +486,145 @@ function findMatchingSession(): ContextStatus | undefined {
 
 function updateStatus() {
   try {
-    const data = findMatchingSession();
-    if (!data) {
-      statusBarItem.text = '$(claude)$(dashboard) 0%';
-      statusBarItem.color = undefined;
-      statusBarItem.tooltip = 'Fuel Gauge — No active Claude Code session';
-      statusBarItem.show();
-      return;
-    }
-
-    const pct = Math.round(data.used_percentage);
-    const config = vscode.workspace.getConfiguration('fuel-gauge');
-    const warningThreshold = config.get<number>('warningThreshold', 60);
-    const dangerThreshold = config.get<number>('dangerThreshold', 80);
-
-    // Stale data (>5 min): show last percentage with yield indicator
-    const ageSeconds = (Date.now() / 1000) - data.timestamp;
-    const isStale = ageSeconds > 300;
-
-    if (isStale) {
-      statusBarItem.text = `$(claude)$(dashboard) ${pct}% $(circle-slash)`;
-      statusBarItem.color = undefined;
-      statusBarItem.tooltip = `Fuel Gauge — ${pct}% (paused, last update ${Math.round(ageSeconds / 60)}m ago)`;
-      statusBarItem.show();
-      return;
-    }
-
-    statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
-
-    if (pct >= dangerThreshold) {
-      statusBarItem.color = new vscode.ThemeColor('charts.red');
-    } else if (pct >= warningThreshold) {
-      statusBarItem.color = new vscode.ThemeColor('charts.yellow');
-    } else {
-      statusBarItem.color = new vscode.ThemeColor('charts.green');
-    }
-
-    statusBarItem.tooltip = `Fuel Gauge — ${pct}%`;
-
-    statusBarItem.show();
+    cachedData = findMatchingSession();
+    renderStatus();
   } catch {
     statusBarItem.hide();
+    cacheStatusBarItem.hide();
   }
+}
+
+function startCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+  }
+  countdownTimer = setInterval(renderStatus, 1000);
+}
+
+function resolveTTL(detectedTtl: number): { ttl: number; source: 'configured' | 'detected' | 'default' } {
+  const config = vscode.workspace.getConfiguration('fuel-gauge');
+  const override = config.get<number | null>('cacheTTL', null);
+  if (override !== null && override !== undefined && override > 0) {
+    return { ttl: override, source: 'configured' };
+  }
+  if (detectedTtl > 0) {
+    return { ttl: detectedTtl, source: 'detected' };
+  }
+  return { ttl: DEFAULT_TTL, source: 'default' };
+}
+
+function formatCountdown(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${m}:${ss.toString().padStart(2, '0')}`;
+}
+
+function describeTTLSource(ttl: number, source: 'configured' | 'detected' | 'default'): string {
+  if (source === 'configured') {
+    if (ttl === 300) { return 'configured 5m'; }
+    if (ttl === 3600) { return 'configured 1h'; }
+    const m = Math.round(ttl / 60);
+    return `configured ${m}m`;
+  }
+  if (source === 'detected') {
+    return ttl === 3600 ? 'detected 1h TTL' : `detected ${Math.round(ttl / 60)}m TTL`;
+  }
+  return '5m default';
+}
+
+function renderStatus() {
+  const data = cachedData;
+
+  if (!data) {
+    statusBarItem.text = '$(claude)$(dashboard) 0%';
+    statusBarItem.color = undefined;
+    statusBarItem.tooltip = 'Fuel Gauge — No active Claude Code session';
+    statusBarItem.show();
+    cacheStatusBarItem.hide();
+    return;
+  }
+
+  const pct = Math.round(data.used_percentage);
+  const config = vscode.workspace.getConfiguration('fuel-gauge');
+  const warningThreshold = config.get<number>('warningThreshold', 60);
+  const dangerThreshold = config.get<number>('dangerThreshold', 80);
+
+  // Compute context color (used for both items as default base)
+  let contextColor: vscode.ThemeColor | undefined;
+  if (pct >= dangerThreshold) {
+    contextColor = new vscode.ThemeColor('charts.red');
+  } else if (pct >= warningThreshold) {
+    contextColor = new vscode.ThemeColor('charts.yellow');
+  } else {
+    contextColor = new vscode.ThemeColor('charts.green');
+  }
+
+  // Cache state — only meaningful if bridge has populated last_api_call_ts
+  const lastApiCallTs = data.last_api_call_ts ?? 0;
+  const detectedTtl = data.detected_ttl ?? 0;
+  const hasCacheInfo = lastApiCallTs > 0;
+
+  // Ultimate file-age safety floor: if bridge file hasn't updated in over an hour,
+  // surface it explicitly. (Below this, cache-expiry handles the freshness signal.)
+  const fileAgeSeconds = (Date.now() / 1000) - data.timestamp;
+  const fileAbandoned = fileAgeSeconds > 3600;
+
+  statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
+  statusBarItem.color = fileAbandoned ? undefined : contextColor;
+
+  if (!hasCacheInfo) {
+    statusBarItem.tooltip = `Fuel Gauge — ${pct}%`;
+    statusBarItem.show();
+    cacheStatusBarItem.hide();
+    return;
+  }
+
+  const { ttl, source } = resolveTTL(detectedTtl);
+  const remaining = ttl - ((Date.now() / 1000) - lastApiCallTs);
+  const ttlLabel = describeTTLSource(ttl, source);
+
+  let cacheText: string;
+  let cacheColor: vscode.ThemeColor | undefined;
+  let cacheTooltipFragment: string;
+
+  if (remaining <= 0) {
+    cacheText = '$(circle-slash) expired';
+    cacheColor = new vscode.ThemeColor('charts.red');
+    cacheTooltipFragment = `Cache: expired (${ttlLabel})`;
+  } else {
+    cacheText = formatCountdown(remaining);
+    if (remaining < 15) {
+      cacheColor = new vscode.ThemeColor('charts.red');
+    } else if (remaining < 60) {
+      cacheColor = new vscode.ThemeColor('charts.yellow');
+    } else {
+      cacheColor = contextColor;
+    }
+    cacheTooltipFragment = `Cache: ${formatCountdown(remaining)} remaining (${ttlLabel})`;
+  }
+
+  // Rate-limit warning when overage downgrade is imminent
+  const rl = data.rate_limit_5h_pct ?? -1;
+  const rateLimitWarning = rl >= 95
+    ? ` · 5h limit ${rl}% — TTL may downgrade`
+    : '';
+
+  cacheStatusBarItem.text = cacheText;
+  cacheStatusBarItem.color = fileAbandoned ? undefined : cacheColor;
+  cacheStatusBarItem.tooltip = `Fuel Gauge — ${pct}% | ${cacheTooltipFragment}${rateLimitWarning}`;
+  statusBarItem.tooltip = cacheStatusBarItem.tooltip;
+
+  statusBarItem.show();
+  cacheStatusBarItem.show();
 }
 
 export function deactivate() {
   if (pollTimer) {
     clearInterval(pollTimer);
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
   }
   if (cleanupTimer) {
     clearInterval(cleanupTimer);

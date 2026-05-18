@@ -6,8 +6,10 @@ In Claude Code's VS Code extension, you don't see context usage until it warns y
 
 Works in VS Code, Antigravity, and other VS Code forks.
 
+As of v0.6, Fuel Gauge also shows a **cache countdown** in a second status bar item. Claude Code caches your prompt prefix so subsequent messages are cheaper and faster — but the cache expires (5 minutes for Pro/API, 1 hour for Max main agent). When that window closes, your next message rebuilds the cache and pays the full base-input price plus a 1.25× or 2× cache-write premium on the rebuild. The countdown tells you exactly how much time you have left before that happens.
+
 <p align="center">
-  <img src="images/status-active.png" width="350" alt="Claude Code Fuel Gauge showing 31% context usage in green">
+  <img src="images/status-active.png" width="350" alt="Claude Code Fuel Gauge showing 14% context usage in green, alongside a 2:42 cache countdown in green">
 </p>
 
 ## Why Fuel Gauge
@@ -24,13 +26,23 @@ Fuel Gauge calculates usage from both input and output tokens, and compensates f
 
 ## Display states
 
+### Context percentage
+
 - **Active** — colored percentage (green/yellow/red based on thresholds)
-- **Stale** — percentage with a circle-slash icon, no color (no update for >5 minutes)
+- **Stale** — percentage with a circle-slash icon, no color (no bridge update for >1 hour — genuinely abandoned session)
 - **No session** — 0%, no color
 
 <p align="center">
   <img src="images/status-states.png" width="350" alt="Fuel Gauge display states — red critical, green active, yellow warning, grey inactive">
 </p>
+
+### Cache countdown (since v0.6)
+
+- **Counting down** — `M:SS` format, color inherits from the context percentage
+- **Warming (<60s)** — yellow
+- **Expiring (<15s)** — red
+- **Expired** — `expired` label in red with a circle-slash icon
+- **Hidden** — when no cache state is available yet (fresh session, just after `/compact`, etc.)
 
 ## Install
 
@@ -54,6 +66,8 @@ Claude Code has a [statusline feature](https://code.claude.com/docs/en/statuslin
 
 Each VS Code window shows the context for its own workspace. Multiple concurrent Claude Code sessions are supported — one per project directory.
 
+The cache countdown auto-detects your plan's TTL by observing whether the cache survives a >5-minute idle gap. Once detected, the TTL persists for that session; new sessions re-detect from scratch.
+
 ## Requirements
 
 - VS Code 1.93+ (or compatible fork)
@@ -68,6 +82,7 @@ Each VS Code window shows the context for its own workspace. Multiple concurrent
 | `fuel-gauge.warningThreshold` | 60 | % at which indicator turns yellow |
 | `fuel-gauge.dangerThreshold` | 80 | % at which indicator turns red |
 | `fuel-gauge.systemOverhead` | 18000 | Estimated system token overhead (invisible to statusline). Increase if Fuel Gauge underreports vs Claude's "Context low" warning |
+| `fuel-gauge.cacheTTL` | `null` (auto) | Prompt-cache TTL in seconds. Leave null to auto-detect from observed cache behavior. Common: `300` (5 min, Pro/API), `3600` (1 hour, Max) |
 
 ## Known issues
 
@@ -88,6 +103,8 @@ No API calls, no telemetry, no runtime dependencies. Everything runs locally usi
 This is a community tool. Not made by, endorsed by, or affiliated with Anthropic.
 
 ## Version History
+
+**v0.6.1** — Adds a prompt-cache countdown in a second status bar item. Shows time remaining until cache expiry in `M:SS`, color-coded for urgency (yellow under 60s, red under 15s). Auto-detects 5-minute vs 1-hour TTL from observed cache behavior; `fuel-gauge.cacheTTL` setting overrides if you want to skip detection.
 
 **v0.5.0** — Renamed from BrainDrain CC to Claude Code Fuel Gauge. New dashboard gauge icon, new screenshots, improved Marketplace discoverability.
 
