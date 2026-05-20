@@ -90,6 +90,53 @@ The cache countdown auto-detects your plan's TTL by observing whether the cache 
 
 **Status bar stops updating on macOS.** Claude Code has an upstream bug ([#32660](https://github.com/anthropics/claude-code/issues/32660)) where the statusline command can silently stop firing on macOS. When this happens (sometimes after "/resume", but not always), Fuel Gauge shows a stale percentage or stays at 0%. Restarting the Claude Code session usually fixes it. No workaround exists at this time.
 
+**WSL + VS Code extension: statusLine hook doesn't fire.** When running Claude Code through the VS Code extension on WSL, the statusLine hook may never trigger, leaving Fuel Gauge stuck at 0%. This also affects the Stop hook. A workaround is available — see [WSL fallback](#wsl-fallback-transcript-watcher) below.
+
+## WSL Fallback: Transcript Watcher
+
+When the statusLine hook doesn't fire (WSL, some VS Code extension setups), you can use the bundled transcript watcher as a fallback. It monitors Claude Code's transcript files via Linux `inotify` and writes session data in the same format as the standard bridge script — Fuel Gauge picks it up with no other changes.
+
+### Requirements
+
+- Linux with inotify support (WSL2, native Linux)
+- Python 3.7+ (stdlib only, no pip packages)
+- `systemctl --user` support
+
+### Install
+
+```bash
+# One-command install as a systemd user service
+python3 wsl/context-watcher.py --install
+```
+
+### Verify
+
+```bash
+python3 wsl/context-watcher.py --status
+```
+
+### How it works
+
+```
+inotify watches ~/.claude/projects/*/
+  → transcript .jsonl modified
+  → extract last assistant usage
+  → compute percentage (respects systemOverhead from config.json)
+  → write ~/.claude/fuel-gauge/{session_id}.json
+  → Fuel Gauge extension polls the directory → updates status bar
+```
+
+- **Per-session**: each session gets its own JSON file, matching by `project_dir`
+- **Event-driven**: uses kernel inotify, not polling (zero CPU when idle)
+- **Debounced**: 2-second minimum interval per file to avoid redundant processing
+- **No dependencies**: pure Python 3 stdlib (ctypes for inotify)
+
+### Uninstall
+
+```bash
+python3 wsl/context-watcher.py --uninstall
+```
+
 **Workspace matching.** The status bar shows context for the Claude Code session whose project directory matches the VS Code workspace folder. If you run Claude Code from a different directory than the one open in VS Code, Fuel Gauge won't pick it up. This is by design — the status bar belongs to the workspace.
 
 **Icon differences across editors.** In VS Code, the status bar shows a Claude icon alongside a dashboard gauge. In forks like Antigravity that don't include newer codicons, only the gauge appears. Functionality is identical.
