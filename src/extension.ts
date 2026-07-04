@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn } from 'child_process';
 
 interface ContextStatus {
   cwd: string;
@@ -95,6 +96,20 @@ if bd_dir and session_id:
     except Exception:
         pass
 
+# Account-level TTL persistence — once detection fires in any session,
+# future sessions inherit the TTL until a downgrade event proves it wrong
+account_ttl_file = os.path.join(bd_dir, 'account_ttl.json') if bd_dir else ''
+account_ttl = 0
+if account_ttl_file:
+    try:
+        with open(account_ttl_file) as f:
+            account_ttl = json.load(f).get('detected_ttl', 0) or 0
+    except Exception:
+        pass
+
+if prev_detected_ttl == 0 and account_ttl > 0:
+    prev_detected_ttl = account_ttl
+
 now = time.time()
 total_in_now = cw.get('total_input_tokens', 0) or 0
 api_call_happened = total_in_now > prev_total_in
@@ -116,6 +131,15 @@ elif api_call_happened:
 else:
     last_api_call_ts = prev_last_api_call_ts
     detected_ttl = prev_detected_ttl
+
+# Persist to account-level file when detection produced a different value
+# (covers both the first upgrade to 3600 and any subsequent downgrade)
+if account_ttl_file and detected_ttl > 0 and detected_ttl != account_ttl:
+    try:
+        with open(account_ttl_file, 'w') as f:
+            json.dump({'detected_ttl': detected_ttl, 'detected_at': now}, f)
+    except Exception:
+        pass
 
 # Rate limit pass-through (defensive — field may be absent)
 rate_limit_5h_pct = -1
@@ -154,7 +178,13 @@ let pollTimer: NodeJS.Timeout | undefined;
 let countdownTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
 let cachedData: ContextStatus | undefined;
+let lastBeepedCycleKey: string | undefined;
 const DEFAULT_TTL = 300;
+const META_FILES = new Set(['config.json', 'account_ttl.json']);
+
+function listSessionFiles(dir: string): string[] {
+  return fs.readdirSync(dir).filter(f => f.endsWith('.json') && !META_FILES.has(f));
+}
 
 // Terminal Shell Integration tracking (VS Code 1.93+)
 let trackedSessionId: string | undefined;
@@ -331,7 +361,7 @@ function cleanupStaleSessions() {
   const maxAgeMs = 36 * 60 * 60 * 1000;
   const cutoff = Date.now() - maxAgeMs;
 
-  const files = fs.readdirSync(fuelGaugeDir).filter(f => f.endsWith('.json'));
+  const files = listSessionFiles(fuelGaugeDir);
   for (const file of files) {
     try {
       const filePath = path.join(fuelGaugeDir, file);
@@ -399,7 +429,7 @@ function findMatchingSession(): ContextStatus | undefined {
       // If the file hasn't updated since last poll, check whether /clear
       // (or similar) created a new session for this workspace
       if (lastTrackedTimestamp !== undefined && data.timestamp === lastTrackedTimestamp) {
-        const files = fs.readdirSync(fuelGaugeDir).filter(f => f.endsWith('.json'));
+        const files = listSessionFiles(fuelGaugeDir);
         let hasNewer = false;
         for (const file of files) {
           try {
@@ -434,7 +464,7 @@ function findMatchingSession(): ContextStatus | undefined {
   // Tier 2: Claude started, waiting to discover session file
   if (claudeStartTime) {
     const startTimeSec = (claudeStartTime / 1000) - 30; // 30s grace for clock skew
-    const files = fs.readdirSync(fuelGaugeDir).filter(f => f.endsWith('.json'));
+    const files = listSessionFiles(fuelGaugeDir);
     let newestMatch: ContextStatus | undefined;
 
     for (const file of files) {
@@ -464,7 +494,7 @@ function findMatchingSession(): ContextStatus | undefined {
 
   // Tier 3: Fallback — scan all, match workspace, pick newest
   let bestMatch: ContextStatus | undefined;
-  const files = fs.readdirSync(fuelGaugeDir).filter(f => f.endsWith('.json'));
+  const files = listSessionFiles(fuelGaugeDir);
 
   for (const file of files) {
     try {
@@ -533,6 +563,31 @@ function describeTTLSource(ttl: number, source: 'configured' | 'detected' | 'def
   return '5m default';
 }
 
+function maybePlayCacheWarningBeep(data: ContextStatus, remaining: number) {
+  if (process.platform !== 'darwin') { return; }
+  const config = vscode.workspace.getConfiguration('fuel-gauge');
+  const threshold = config.get<number | null>('cacheWarningSeconds', null);
+  if (threshold === null || threshold === undefined || threshold <= 0) { return; }
+  if (remaining <= 0 || remaining > threshold) { return; }
+
+  const cycleKey = `${data.session_id}:${data.last_api_call_ts}`;
+  if (lastBeepedCycleKey === cycleKey) { return; }
+  lastBeepedCycleKey = cycleKey;
+
+  for (let i = 0; i < 3; i++) {
+    setTimeout(() => {
+      try {
+        spawn('afplay', ['/System/Library/Sounds/Tink.aiff'], {
+          detached: true,
+          stdio: 'ignore',
+        }).unref();
+      } catch {
+        // afplay missing or blocked — silently ignore
+      }
+    }, i * 300);
+  }
+}
+
 function renderStatus() {
   const data = cachedData;
 
@@ -583,6 +638,8 @@ function renderStatus() {
   const { ttl, source } = resolveTTL(detectedTtl);
   const remaining = ttl - ((Date.now() / 1000) - lastApiCallTs);
   const ttlLabel = describeTTLSource(ttl, source);
+
+  maybePlayCacheWarningBeep(data, remaining);
 
   let cacheText: string;
   let cacheColor: vscode.ThemeColor | undefined;
