@@ -2,7 +2,7 @@
   "name": "claude-code-fuel-gauge",
   "displayName": "Claude Code Fuel Gauge",
   "description": "A context meter for your context window",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
   "repository": {
@@ -62,6 +62,12 @@
           "type": ["number", "null"],
           "default": null,
           "description": "Play 3 short beeps when the cache countdown drops below this threshold (in seconds). Leave null to disable. macOS only (uses afplay). Example: 180 for a 3-minute warning."
+        },
+        "fuel-gauge.effortStyle": {
+          "type": "string",
+          "enum": ["bar", "dots", "numbers", "off"],
+          "default": "bar",
+          "description": "How to show the active reasoning-effort level (low → medium → high → xhigh → max) in a third status bar item. 'bar' = block-height ramp (▁▃▅▆█), 'dots' = 1–5 dots, 'numbers' = 1–5, 'off' = hide it. Only appears when the current Claude Code model exposes an effort level."
         }
       }
     }

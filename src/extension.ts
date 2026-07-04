@@ -20,6 +20,7 @@ interface ContextStatus {
   detected_ttl?: number;
   last_api_call_ts?: number;
   rate_limit_5h_pct?: number;
+  effort_level?: string;
 }
 
 const BRIDGE_SCRIPT = `#!/bin/bash
@@ -150,6 +151,16 @@ try:
 except Exception:
     rate_limit_5h_pct = -1
 
+# Reasoning effort level (statusline 'effort.level'; the whole 'effort'
+# object is absent when the current model doesn't support the effort parameter)
+effort_level = ''
+try:
+    eff = data.get('effort')
+    if isinstance(eff, dict):
+        effort_level = eff.get('level', '') or ''
+except Exception:
+    effort_level = ''
+
 output = {
     'cwd': data.get('cwd', ''),
     'project_dir': project_dir,
@@ -166,6 +177,7 @@ output = {
     'detected_ttl': detected_ttl,
     'last_api_call_ts': last_api_call_ts,
     'rate_limit_5h_pct': rate_limit_5h_pct,
+    'effort_level': effort_level,
 }
 
 print(json.dumps(output, indent=2))
@@ -174,6 +186,7 @@ print(json.dumps(output, indent=2))
 
 let statusBarItem: vscode.StatusBarItem;
 let cacheStatusBarItem: vscode.StatusBarItem;
+let effortStatusBarItem: vscode.StatusBarItem;
 let pollTimer: NodeJS.Timeout | undefined;
 let countdownTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
@@ -181,6 +194,15 @@ let cachedData: ContextStatus | undefined;
 let lastBeepedCycleKey: string | undefined;
 const DEFAULT_TTL = 300;
 const META_FILES = new Set(['config.json', 'account_ttl.json']);
+
+// Reasoning-effort glyphs. Five ordinal levels: low → medium → high → xhigh → max.
+// 'xhigh' also covers "ultracode" (Claude Code reports it as xhigh).
+const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
+const EFFORT_GLYPHS: Record<string, string[]> = {
+  bar: ['▁', '▃', '▅', '▆', '█'],
+  dots: ['·', '··', '···', '····', '·····'],
+  numbers: ['1', '2', '3', '4', '5'],
+};
 
 function listSessionFiles(dir: string): string[] {
   return fs.readdirSync(dir).filter(f => f.endsWith('.json') && !META_FILES.has(f));
@@ -295,6 +317,12 @@ export function activate(context: vscode.ExtensionContext) {
     99
   );
   context.subscriptions.push(cacheStatusBarItem);
+
+  effortStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    98
+  );
+  context.subscriptions.push(effortStatusBarItem);
 
   startPolling();
   startCountdown();
@@ -588,8 +616,36 @@ function maybePlayCacheWarningBeep(data: ContextStatus, remaining: number) {
   }
 }
 
+function renderEffort(data: ContextStatus | undefined) {
+  const config = vscode.workspace.getConfiguration('fuel-gauge');
+  const style = config.get<string>('effortStyle', 'bar');
+  const level = data?.effort_level;
+
+  // Hidden when disabled, when there's no active session, or when the model
+  // doesn't expose an effort level (the statusline 'effort' object is absent).
+  if (style === 'off' || !level) {
+    effortStatusBarItem.hide();
+    return;
+  }
+
+  const idx = EFFORT_ORDER.indexOf(level);
+  if (idx < 0) {
+    effortStatusBarItem.hide();
+    return;
+  }
+
+  const glyphs = EFFORT_GLYPHS[style] ?? EFFORT_GLYPHS.bar;
+  effortStatusBarItem.text = glyphs[idx];
+  // Neutral color on purpose: green/yellow/red carry urgency meaning on the
+  // context and cache items; effort is a mode, not a warning.
+  effortStatusBarItem.color = undefined;
+  effortStatusBarItem.tooltip = `Fuel Gauge — reasoning effort: ${level}`;
+  effortStatusBarItem.show();
+}
+
 function renderStatus() {
   const data = cachedData;
+  renderEffort(data);
 
   if (!data) {
     statusBarItem.text = '$(claude)$(dashboard) 0%';
