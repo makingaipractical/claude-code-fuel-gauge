@@ -195,14 +195,42 @@ let lastBeepedCycleKey: string | undefined;
 const DEFAULT_TTL = 300;
 const META_FILES = new Set(['config.json', 'account_ttl.json']);
 
-// Reasoning-effort glyphs. Five ordinal levels: low → medium → high → xhigh → max.
+// Reasoning-effort levels, ordinal: low → medium → high → xhigh → max.
 // 'xhigh' also covers "ultracode" (Claude Code reports it as xhigh).
 const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
-const EFFORT_GLYPHS: Record<string, string[]> = {
-  bar: ['▁', '▃', '▅', '▆', '█'],
-  dots: ['·', '··', '···', '····', '·····'],
-  numbers: ['1', '2', '3', '4', '5'],
+
+// Compact label shown in the status bar for each effort level.
+const EFFORT_LABELS: Record<string, string> = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'x-high',
+  max: 'max',
 };
+
+// Effort colors — a warm Anthropic-leaning ramp (clay → rust), with a
+// standout gold for 'max'. Hex is intentional (fixed brand hue, not a theme
+// token); the whole model·effort item takes one of these.
+const EFFORT_COLORS: Record<string, string> = {
+  low: '#8A8A8A',    // neutral — lowest intensity
+  medium: '#C2996B', // light clay
+  high: '#CC785C',   // Anthropic clay
+  xhigh: '#B85C38',  // deeper rust
+  max: '#E3B341',    // gold — standout
+};
+
+// Model green used in the tooltip (bar item is single-color = effort color).
+const MODEL_GREEN = '#6BA66A';
+
+// Map a raw model id (e.g. 'claude-opus-4-8...') to a short family name.
+function shortModelName(modelId: string | undefined): string {
+  const m = (modelId ?? '').toLowerCase();
+  if (m.includes('opus')) { return 'opus'; }
+  if (m.includes('sonnet')) { return 'sonnet'; }
+  if (m.includes('haiku')) { return 'haiku'; }
+  if (m.includes('fable')) { return 'fable'; }
+  return '';
+}
 
 function listSessionFiles(dir: string): string[] {
   return fs.readdirSync(dir).filter(f => f.endsWith('.json') && !META_FILES.has(f));
@@ -616,43 +644,97 @@ function maybePlayCacheWarningBeep(data: ContextStatus, remaining: number) {
   }
 }
 
-function renderEffort(data: ContextStatus | undefined) {
+// Severity → ThemeColor for the merged context+cache item (0 green, 1 yellow, 2 red).
+function severityColor(sev: number): vscode.ThemeColor {
+  if (sev >= 2) { return new vscode.ThemeColor('charts.red'); }
+  if (sev >= 1) { return new vscode.ThemeColor('charts.yellow'); }
+  return new vscode.ThemeColor('charts.green');
+}
+
+// Title-case a hyphenated label: 'x-high' → 'X-High', 'opus' → 'Opus'.
+function titleCase(s: string): string {
+  return s
+    .split('-')
+    .map(p => (p ? p.charAt(0).toUpperCase() + p.slice(1) : p))
+    .join('-');
+}
+
+// Renders the combined model·effort item, colored by effort level. Returns the
+// display fragments so the caller can fold them into the shared tooltip.
+// Hidden when disabled ('off'), no session, or neither model nor effort known.
+function renderModelEffort(
+  data: ContextStatus | undefined
+): { modelCap: string; effortCap: string; effortLevel: string } {
   const config = vscode.workspace.getConfiguration('fuel-gauge');
-  const style = config.get<string>('effortStyle', 'bar');
-  const level = data?.effort_level;
+  const style = config.get<string>('effortStyle', 'text');
 
-  // Hidden when disabled, when there's no active session, or when the model
-  // doesn't expose an effort level (the statusline 'effort' object is absent).
-  if (style === 'off' || !level) {
+  const model = shortModelName(data?.model);
+  const level = data?.effort_level ?? '';
+  const hasEffort = EFFORT_ORDER.indexOf(level) >= 0;
+  const effortLabel = hasEffort ? EFFORT_LABELS[level] : '';
+
+  const modelCap = model ? titleCase(model) : '';
+  const effortCap = effortLabel ? titleCase(effortLabel) : '';
+
+  if (style === 'off' || !data || (!model && !effortLabel)) {
     effortStatusBarItem.hide();
-    return;
+    return { modelCap, effortCap, effortLevel: level };
   }
 
-  const idx = EFFORT_ORDER.indexOf(level);
-  if (idx < 0) {
-    effortStatusBarItem.hide();
-    return;
+  // Single-color item: model+effort share the effort color (or neutral when
+  // only the model is known). The green-model / colored-effort split lives in
+  // the tooltip, which is the only surface that supports two colors + stacking.
+  let text: string;
+  if (model && effortLabel) {
+    text = `${model}·${effortLabel}`;
+  } else {
+    text = model || effortLabel;
   }
 
-  const glyphs = EFFORT_GLYPHS[style] ?? EFFORT_GLYPHS.bar;
-  effortStatusBarItem.text = glyphs[idx];
-  // Neutral color on purpose: green/yellow/red carry urgency meaning on the
-  // context and cache items; effort is a mode, not a warning.
-  effortStatusBarItem.color = undefined;
-  effortStatusBarItem.tooltip = `Fuel Gauge — reasoning effort: ${level}`;
+  effortStatusBarItem.text = text;
+  effortStatusBarItem.color = hasEffort ? EFFORT_COLORS[level] : undefined;
   effortStatusBarItem.show();
+  return { modelCap, effortCap, effortLevel: level };
+}
+
+// Builds the shared hover tooltip: model over effort (stacked + color-coded),
+// then the context / cache stats. This is where the two-line, two-color layout
+// the status bar itself can't do actually lives.
+function buildTooltip(
+  modelCap: string,
+  effortCap: string,
+  effortLevel: string,
+  statsLine: string
+): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(undefined, true);
+  md.supportHtml = true;
+
+  const lines: string[] = [];
+  if (modelCap) {
+    lines.push(`<span style="color:${MODEL_GREEN};"><b>${modelCap}</b></span>`);
+  }
+  if (effortCap) {
+    const c = EFFORT_COLORS[effortLevel] ?? '#8A8A8A';
+    lines.push(`<span style="color:${c};"><b>${effortCap}</b></span>`);
+  }
+  lines.push(statsLine);
+  md.appendMarkdown(lines.join('<br>'));
+  return md;
 }
 
 function renderStatus() {
   const data = cachedData;
-  renderEffort(data);
+  const { modelCap, effortCap, effortLevel } = renderModelEffort(data);
+
+  // The cache countdown is merged into the main item now, so its own status bar
+  // item stays hidden permanently.
+  cacheStatusBarItem.hide();
 
   if (!data) {
     statusBarItem.text = '$(claude)$(dashboard) 0%';
     statusBarItem.color = undefined;
     statusBarItem.tooltip = 'Fuel Gauge — No active Claude Code session';
     statusBarItem.show();
-    cacheStatusBarItem.hide();
     return;
   }
 
@@ -661,14 +743,12 @@ function renderStatus() {
   const warningThreshold = config.get<number>('warningThreshold', 60);
   const dangerThreshold = config.get<number>('dangerThreshold', 80);
 
-  // Compute context color (used for both items as default base)
-  let contextColor: vscode.ThemeColor | undefined;
+  // Context severity (0 green, 1 yellow, 2 red).
+  let contextSeverity = 0;
   if (pct >= dangerThreshold) {
-    contextColor = new vscode.ThemeColor('charts.red');
+    contextSeverity = 2;
   } else if (pct >= warningThreshold) {
-    contextColor = new vscode.ThemeColor('charts.yellow');
-  } else {
-    contextColor = new vscode.ThemeColor('charts.green');
+    contextSeverity = 1;
   }
 
   // Cache state — only meaningful if bridge has populated last_api_call_ts
@@ -681,13 +761,13 @@ function renderStatus() {
   const fileAgeSeconds = (Date.now() / 1000) - data.timestamp;
   const fileAbandoned = fileAgeSeconds > 3600;
 
-  statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
-  statusBarItem.color = fileAbandoned ? undefined : contextColor;
-
   if (!hasCacheInfo) {
-    statusBarItem.tooltip = `Fuel Gauge — ${pct}%`;
+    statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
+    statusBarItem.color = fileAbandoned ? undefined : severityColor(contextSeverity);
+    statusBarItem.tooltip = buildTooltip(
+      modelCap, effortCap, effortLevel, `Context&nbsp;${pct}%`
+    );
     statusBarItem.show();
-    cacheStatusBarItem.hide();
     return;
   }
 
@@ -698,21 +778,19 @@ function renderStatus() {
   maybePlayCacheWarningBeep(data, remaining);
 
   let cacheText: string;
-  let cacheColor: vscode.ThemeColor | undefined;
+  let cacheSeverity = 0;
   let cacheTooltipFragment: string;
 
   if (remaining <= 0) {
     cacheText = '$(circle-slash) expired';
-    cacheColor = new vscode.ThemeColor('charts.red');
+    cacheSeverity = 2;
     cacheTooltipFragment = `Cache: expired (${ttlLabel})`;
   } else {
     cacheText = formatCountdown(remaining);
     if (remaining < 15) {
-      cacheColor = new vscode.ThemeColor('charts.red');
+      cacheSeverity = 2;
     } else if (remaining < 60) {
-      cacheColor = new vscode.ThemeColor('charts.yellow');
-    } else {
-      cacheColor = contextColor;
+      cacheSeverity = 1;
     }
     cacheTooltipFragment = `Cache: ${formatCountdown(remaining)} remaining (${ttlLabel})`;
   }
@@ -720,16 +798,22 @@ function renderStatus() {
   // Rate-limit warning when overage downgrade is imminent
   const rl = data.rate_limit_5h_pct ?? -1;
   const rateLimitWarning = rl >= 95
-    ? ` · 5h limit ${rl}% — TTL may downgrade`
+    ? ` &middot; 5h limit ${rl}% — TTL may downgrade`
     : '';
 
-  cacheStatusBarItem.text = cacheText;
-  cacheStatusBarItem.color = fileAbandoned ? undefined : cacheColor;
-  cacheStatusBarItem.tooltip = `Fuel Gauge — ${pct}% | ${cacheTooltipFragment}${rateLimitWarning}`;
-  statusBarItem.tooltip = cacheStatusBarItem.tooltip;
-
+  // Merged item: percentage + cache countdown; color reflects the more urgent
+  // of the two signals (the numbers themselves say which one is in danger).
+  statusBarItem.text = `$(claude)$(dashboard) ${pct}% · ${cacheText}`;
+  statusBarItem.color = fileAbandoned
+    ? undefined
+    : severityColor(Math.max(contextSeverity, cacheSeverity));
+  statusBarItem.tooltip = buildTooltip(
+    modelCap,
+    effortCap,
+    effortLevel,
+    `Context&nbsp;${pct}%<br>${cacheTooltipFragment}${rateLimitWarning}`
+  );
   statusBarItem.show();
-  cacheStatusBarItem.show();
 }
 
 export function deactivate() {
