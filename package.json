@@ -2,7 +2,7 @@
   "name": "claude-code-fuel-gauge",
   "displayName": "Claude Code Fuel Gauge",
   "description": "A context meter for your context window",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
   "repository": {
@@ -68,6 +68,11 @@
           "enum": ["text", "off"],
           "default": "text",
           "description": "Show the active model + reasoning-effort level as a compact status bar item (e.g. 'opus·x-high'), color-coded by effort level (low → medium → high → x-high → max). 'text' = show it, 'off' = hide it. The effort part only appears when the current Claude Code model exposes an effort level; hover for the full model / effort / context / cache breakdown."
+        },
+        "fuel-gauge.showUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show your Claude plan's usage limits as a status bar item: session (5-hour) and weekly percentage used, with reset times in the tooltip. Only appears on subscription plans (Pro/Max) once Claude Code reports limit data. Yellow at 70% used, red at 90%."
         }
       }
     }

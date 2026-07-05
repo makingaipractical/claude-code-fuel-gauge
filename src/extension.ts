@@ -20,6 +20,9 @@ interface ContextStatus {
   detected_ttl?: number;
   last_api_call_ts?: number;
   rate_limit_5h_pct?: number;
+  rate_limit_5h_reset?: number;
+  rate_limit_7d_pct?: number;
+  rate_limit_7d_reset?: number;
   effort_level?: string;
 }
 
@@ -142,14 +145,22 @@ if account_ttl_file and detected_ttl > 0 and detected_ttl != account_ttl:
     except Exception:
         pass
 
-# Rate limit pass-through (defensive — field may be absent)
-rate_limit_5h_pct = -1
-try:
-    rate_limit_5h_pct = data.get('rate_limits', {}).get('five_hour', {}).get('used_percentage', -1)
-    if rate_limit_5h_pct is None:
-        rate_limit_5h_pct = -1
-except Exception:
-    rate_limit_5h_pct = -1
+# Rate limit pass-through (defensive — each window may be independently
+# absent; -1 pct / 0 reset means 'not available', the extension hides it)
+def rl_num(obj, key, absent):
+    try:
+        v = obj.get(key, absent) if isinstance(obj, dict) else absent
+        return v if isinstance(v, (int, float)) else absent
+    except Exception:
+        return absent
+
+rl = data.get('rate_limits')
+rl_5h = rl.get('five_hour') if isinstance(rl, dict) else None
+rl_7d = rl.get('seven_day') if isinstance(rl, dict) else None
+rate_limit_5h_pct = rl_num(rl_5h, 'used_percentage', -1)
+rate_limit_5h_reset = rl_num(rl_5h, 'resets_at', 0)
+rate_limit_7d_pct = rl_num(rl_7d, 'used_percentage', -1)
+rate_limit_7d_reset = rl_num(rl_7d, 'resets_at', 0)
 
 # Reasoning effort level (statusline 'effort.level'; the whole 'effort'
 # object is absent when the current model doesn't support the effort parameter)
@@ -177,6 +188,9 @@ output = {
     'detected_ttl': detected_ttl,
     'last_api_call_ts': last_api_call_ts,
     'rate_limit_5h_pct': rate_limit_5h_pct,
+    'rate_limit_5h_reset': rate_limit_5h_reset,
+    'rate_limit_7d_pct': rate_limit_7d_pct,
+    'rate_limit_7d_reset': rate_limit_7d_reset,
     'effort_level': effort_level,
 }
 
@@ -187,6 +201,7 @@ print(json.dumps(output, indent=2))
 let statusBarItem: vscode.StatusBarItem;
 let cacheStatusBarItem: vscode.StatusBarItem;
 let effortStatusBarItem: vscode.StatusBarItem;
+let usageStatusBarItem: vscode.StatusBarItem;
 let pollTimer: NodeJS.Timeout | undefined;
 let countdownTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
@@ -351,6 +366,12 @@ export function activate(context: vscode.ExtensionContext) {
     98
   );
   context.subscriptions.push(effortStatusBarItem);
+
+  usageStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    97
+  );
+  context.subscriptions.push(usageStatusBarItem);
 
   startPolling();
   startCountdown();
@@ -577,6 +598,7 @@ function updateStatus() {
   } catch {
     statusBarItem.hide();
     cacheStatusBarItem.hide();
+    usageStatusBarItem.hide();
   }
 }
 
@@ -722,9 +744,80 @@ function buildTooltip(
   return md;
 }
 
+// Usage-limit color thresholds (percent used). Fixed on purpose — the context
+// thresholds don't transfer (60% context is late in a session; 60% weekly on a
+// Wednesday is normal pacing).
+const USAGE_WARN_PCT = 70;
+const USAGE_DANGER_PCT = 90;
+
+function usageSeverity(pct: number): number {
+  if (pct >= USAGE_DANGER_PCT) { return 2; }
+  if (pct >= USAGE_WARN_PCT) { return 1; }
+  return 0;
+}
+
+// ' · resets 23:10' for the 5h window; weekday + date added for the weekly one.
+function formatResetSuffix(epochSeconds: number | undefined, weekly: boolean): string {
+  if (!epochSeconds || epochSeconds <= 0) { return ''; }
+  const d = new Date(epochSeconds * 1000);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (!weekly) { return ` · resets ${time}`; }
+  const day = d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+  return ` · resets ${day}, ${time}`;
+}
+
+// Renders the session/weekly usage-limit item (statusline rate_limits
+// pass-through). Hidden when disabled, no session, stale file, or Claude Code
+// sent no limit data (API-key plans; before the session's first response) —
+// absent data renders as nothing, never as 0%.
+function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean) {
+  const config = vscode.workspace.getConfiguration('fuel-gauge');
+  const show = config.get<boolean>('showUsage', true);
+
+  const pct5h = data?.rate_limit_5h_pct ?? -1;
+  const pct7d = data?.rate_limit_7d_pct ?? -1;
+
+  if (!show || !data || fileAbandoned || (pct5h < 0 && pct7d < 0)) {
+    usageStatusBarItem.hide();
+    return;
+  }
+
+  const parts: string[] = [];
+  const tipLines: string[] = [];
+  let severity = 0;
+
+  if (pct5h >= 0) {
+    parts.push(`5h ${Math.round(pct5h)}%`);
+    tipLines.push(`Session limit (5h): ${Math.round(pct5h)}% used${formatResetSuffix(data.rate_limit_5h_reset, false)}`);
+    severity = Math.max(severity, usageSeverity(pct5h));
+  }
+  if (pct7d >= 0) {
+    parts.push(`wk ${Math.round(pct7d)}%`);
+    tipLines.push(`Weekly limit (all models): ${Math.round(pct7d)}% used${formatResetSuffix(data.rate_limit_7d_reset, true)}`);
+    severity = Math.max(severity, usageSeverity(pct7d));
+  }
+
+  const md = new vscode.MarkdownString(undefined, true);
+  md.supportHtml = true;
+  md.appendMarkdown(tipLines.join('<br>'));
+
+  usageStatusBarItem.text = parts.join(' · ');
+  usageStatusBarItem.color = severityColor(severity);
+  usageStatusBarItem.tooltip = md;
+  usageStatusBarItem.show();
+}
+
 function renderStatus() {
   const data = cachedData;
   const { modelCap, effortCap, effortLevel } = renderModelEffort(data);
+
+  // Ultimate file-age safety floor: if the bridge file hasn't updated in over
+  // an hour the session is genuinely abandoned — strip color below, and hide
+  // the usage item (stale limit numbers mislead).
+  const fileAbandoned = data
+    ? ((Date.now() / 1000) - data.timestamp) > 3600
+    : false;
+  renderUsage(data, fileAbandoned);
 
   // The cache countdown is merged into the main item now, so its own status bar
   // item stays hidden permanently.
@@ -755,11 +848,6 @@ function renderStatus() {
   const lastApiCallTs = data.last_api_call_ts ?? 0;
   const detectedTtl = data.detected_ttl ?? 0;
   const hasCacheInfo = lastApiCallTs > 0;
-
-  // Ultimate file-age safety floor: if bridge file hasn't updated in over an hour,
-  // surface it explicitly. (Below this, cache-expiry handles the freshness signal.)
-  const fileAgeSeconds = (Date.now() / 1000) - data.timestamp;
-  const fileAbandoned = fileAgeSeconds > 3600;
 
   if (!hasCacheInfo) {
     statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
