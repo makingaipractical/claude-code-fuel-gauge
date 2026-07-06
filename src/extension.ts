@@ -726,7 +726,8 @@ function buildTooltip(
   modelCap: string,
   effortCap: string,
   effortLevel: string,
-  statsLine: string
+  statsLine: string,
+  usageFragment: string = ''
 ): vscode.MarkdownString {
   const md = new vscode.MarkdownString(undefined, true);
   md.supportHtml = true;
@@ -740,6 +741,9 @@ function buildTooltip(
     lines.push(`<span style="color:${c};"><b>${effortCap}</b></span>`);
   }
   lines.push(statsLine);
+  if (usageFragment) {
+    lines.push(usageFragment);
+  }
   md.appendMarkdown(lines.join('<br>'));
   return md;
 }
@@ -766,11 +770,14 @@ function formatResetSuffix(epochSeconds: number | undefined, weekly: boolean): s
   return ` · resets ${day}, ${time}`;
 }
 
-// Renders the session/weekly usage-limit item (statusline rate_limits
-// pass-through). Hidden when disabled, no session, stale file, or Claude Code
-// sent no limit data (API-key plans; before the session's first response) —
-// absent data renders as nothing, never as 0%.
-function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean) {
+// Session/weekly usage limits (statusline rate_limits pass-through). Usage
+// lives in the main gauge's hover tooltip; this returns that tooltip fragment
+// for the caller to fold in. The standalone chip only reappears in the bar as
+// a warning light when a limit is elevated (severity >= 1: yellow >=70%, red
+// >=90%). Returns '' — and shows nothing — when disabled, no session, stale
+// file, or Claude Code sent no limit data (API-key plans; before the session's
+// first response). Absent data renders as nothing, never as 0%.
+function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): string {
   const config = vscode.workspace.getConfiguration('fuel-gauge');
   const show = config.get<boolean>('showUsage', true);
 
@@ -779,7 +786,7 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean) {
 
   if (!show || !data || fileAbandoned || (pct5h < 0 && pct7d < 0)) {
     usageStatusBarItem.hide();
-    return;
+    return '';
   }
 
   const parts: string[] = [];
@@ -797,14 +804,25 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean) {
     severity = Math.max(severity, usageSeverity(pct7d));
   }
 
-  const md = new vscode.MarkdownString(undefined, true);
-  md.supportHtml = true;
-  md.appendMarkdown(tipLines.join('<br>'));
+  const tipFragment = tipLines.join('<br>');
 
-  usageStatusBarItem.text = parts.join(' · ');
-  usageStatusBarItem.color = severityColor(severity);
-  usageStatusBarItem.tooltip = md;
-  usageStatusBarItem.show();
+  // Warning-light behavior: normally usage lives only in the hover tooltip
+  // (returned below). The chip pops back into the bar as an alert when a limit
+  // is elevated — colored by the more urgent of the two windows.
+  if (severity >= 1) {
+    const md = new vscode.MarkdownString(undefined, true);
+    md.supportHtml = true;
+    md.appendMarkdown(tipFragment);
+
+    usageStatusBarItem.text = parts.join(' · ');
+    usageStatusBarItem.color = severityColor(severity);
+    usageStatusBarItem.tooltip = md;
+    usageStatusBarItem.show();
+  } else {
+    usageStatusBarItem.hide();
+  }
+
+  return tipFragment;
 }
 
 function renderStatus() {
@@ -817,7 +835,10 @@ function renderStatus() {
   const fileAbandoned = data
     ? ((Date.now() / 1000) - data.timestamp) > 3600
     : false;
-  renderUsage(data, fileAbandoned);
+  // Usage now lives in this main gauge's hover tooltip; renderUsage returns
+  // that fragment (and independently pops its own warning chip when a limit
+  // is high). Fold the fragment into buildTooltip below.
+  const usageTip = renderUsage(data, fileAbandoned);
 
   // The cache countdown is merged into the main item now, so its own status bar
   // item stays hidden permanently.
@@ -853,7 +874,7 @@ function renderStatus() {
     statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
     statusBarItem.color = fileAbandoned ? undefined : severityColor(contextSeverity);
     statusBarItem.tooltip = buildTooltip(
-      modelCap, effortCap, effortLevel, `Context&nbsp;${pct}%`
+      modelCap, effortCap, effortLevel, `Context&nbsp;${pct}%`, usageTip
     );
     statusBarItem.show();
     return;
@@ -899,7 +920,8 @@ function renderStatus() {
     modelCap,
     effortCap,
     effortLevel,
-    `Context&nbsp;${pct}%<br>${cacheTooltipFragment}${rateLimitWarning}`
+    `Context&nbsp;${pct}%<br>${cacheTooltipFragment}${rateLimitWarning}`,
+    usageTip
   );
   statusBarItem.show();
 }

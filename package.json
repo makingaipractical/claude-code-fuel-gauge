@@ -72,7 +72,7 @@
         "fuel-gauge.showUsage": {
           "type": "boolean",
           "default": true,
-          "description": "Show your Claude plan's usage limits as a status bar item: session (5-hour) and weekly percentage used, with reset times in the tooltip. Only appears on subscription plans (Pro/Max) once Claude Code reports limit data. Yellow at 70% used, red at 90%."
+          "description": "Show your Claude plan's usage limits — session (5-hour) and weekly percentage used, with reset times — in the fuel-gauge hover tooltip. When a limit gets high the numbers also pop into the status bar as a warning (yellow at 70% used, red at 90%). Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
         }
       }
     }
