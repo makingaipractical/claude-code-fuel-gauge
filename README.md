@@ -13,7 +13,7 @@ Claude Code shows context usage inside its own chat panel, but only once you're 
 Each VS Code window tracks its own workspace, so if you run several Claude Code sessions across projects at once, each window shows the right one — and which model each session is on, at what effort level.
 
 <p align="center">
-  <img src="images/status-active.png" width="360" alt="Claude Code Fuel Gauge in the VS Code status bar: 14% context in green, a 2:42 cache countdown, and an opus·x-high model-effort indicator">
+  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % in green, a cache countdown, and the model-effort indicator — opus·high in one, fable·x-high in the other">
 </p>
 
 The **cache countdown** is the part nothing else has. Claude Code caches your prompt prefix so each message comes back fast; that cache goes cold after a few minutes of inactivity (an hour on a Max plan). When it lapses, your next message silently rebuilds it — slower to respond, and on an API-key plan, more expensive too. The countdown shows exactly how long the cache stays warm, so you can get your next message in before it expires.
