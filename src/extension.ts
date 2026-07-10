@@ -666,7 +666,7 @@ function maybePlayCacheWarningBeep(data: ContextStatus, remaining: number) {
   }
 }
 
-// Severity → ThemeColor for the merged context+cache item (0 green, 1 yellow, 2 red).
+// Severity → ThemeColor (0 green, 1 yellow, 2 red).
 function severityColor(sev: number): vscode.ThemeColor {
   if (sev >= 2) { return new vscode.ThemeColor('charts.red'); }
   if (sev >= 1) { return new vscode.ThemeColor('charts.yellow'); }
@@ -835,20 +835,16 @@ function renderStatus() {
   const fileAbandoned = data
     ? ((Date.now() / 1000) - data.timestamp) > 3600
     : false;
-  // Usage now lives in this main gauge's hover tooltip; renderUsage returns
-  // that fragment (and independently pops its own warning chip when a limit
-  // is high). Fold the fragment into buildTooltip below.
+  // Usage lives in the main gauge's hover tooltip; renderUsage returns that
+  // fragment (and independently pops its own warning dot when a limit is high).
   const usageTip = renderUsage(data, fileAbandoned);
-
-  // The cache countdown is merged into the main item now, so its own status bar
-  // item stays hidden permanently.
-  cacheStatusBarItem.hide();
 
   if (!data) {
     statusBarItem.text = '$(claude)$(dashboard) 0%';
     statusBarItem.color = undefined;
     statusBarItem.tooltip = 'Fuel Gauge — No active Claude Code session';
     statusBarItem.show();
+    cacheStatusBarItem.hide();
     return;
   }
 
@@ -864,15 +860,20 @@ function renderStatus() {
   } else if (pct >= warningThreshold) {
     contextSeverity = 1;
   }
+  const contextColor = fileAbandoned ? undefined : severityColor(contextSeverity);
 
-  // Cache state — only meaningful if bridge has populated last_api_call_ts
+  // Main item: context percentage only. The cache countdown is a separate item
+  // (below) so it can carry its own urgency color independent of context.
+  statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
+  statusBarItem.color = contextColor;
+
+  // Cache state — only meaningful if bridge has populated last_api_call_ts.
   const lastApiCallTs = data.last_api_call_ts ?? 0;
   const detectedTtl = data.detected_ttl ?? 0;
   const hasCacheInfo = lastApiCallTs > 0;
 
   if (!hasCacheInfo) {
-    statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
-    statusBarItem.color = fileAbandoned ? undefined : severityColor(contextSeverity);
+    cacheStatusBarItem.hide();
     statusBarItem.tooltip = buildTooltip(
       modelCap, effortCap, effortLevel, `Context&nbsp;${pct}%`, usageTip
     );
@@ -886,36 +887,42 @@ function renderStatus() {
 
   maybePlayCacheWarningBeep(data, remaining);
 
+  // Cache color is independent of context: it inherits the context color while
+  // there's comfortable time left, then escalates on its own countdown
+  // thresholds — yellow under 60s, red under 15s / expired.
   let cacheText: string;
-  let cacheSeverity = 0;
+  let cacheColor: vscode.ThemeColor | undefined;
   let cacheTooltipFragment: string;
 
   if (remaining <= 0) {
     cacheText = '$(circle-slash) expired';
-    cacheSeverity = 2;
+    cacheColor = new vscode.ThemeColor('charts.red');
     cacheTooltipFragment = `Cache: expired (${ttlLabel})`;
   } else {
     cacheText = formatCountdown(remaining);
     if (remaining < 15) {
-      cacheSeverity = 2;
+      cacheColor = new vscode.ThemeColor('charts.red');
     } else if (remaining < 60) {
-      cacheSeverity = 1;
+      cacheColor = new vscode.ThemeColor('charts.yellow');
+    } else {
+      cacheColor = contextColor;
     }
     cacheTooltipFragment = `Cache: ${formatCountdown(remaining)} remaining (${ttlLabel})`;
   }
 
-  // Rate-limit warning when overage downgrade is imminent
+  // Rate-limit warning when overage downgrade is imminent.
   const rl = data.rate_limit_5h_pct ?? -1;
   const rateLimitWarning = rl >= 95
-    ? ` &middot; 5h limit ${rl}% — TTL may downgrade`
+    ? ` · 5h limit ${rl}% — TTL may downgrade`
     : '';
 
-  // Merged item: percentage + cache countdown; color reflects the more urgent
-  // of the two signals (the numbers themselves say which one is in danger).
-  statusBarItem.text = `$(claude)$(dashboard) ${pct}% · ${cacheText}`;
-  statusBarItem.color = fileAbandoned
-    ? undefined
-    : severityColor(Math.max(contextSeverity, cacheSeverity));
+  cacheStatusBarItem.text = cacheText;
+  cacheStatusBarItem.color = fileAbandoned ? undefined : cacheColor;
+  cacheStatusBarItem.tooltip = `${cacheTooltipFragment}${rateLimitWarning}`;
+  cacheStatusBarItem.show();
+
+  // Main gauge tooltip keeps the full stacked layout: model / effort / context
+  // / cache / usage.
   statusBarItem.tooltip = buildTooltip(
     modelCap,
     effortCap,
