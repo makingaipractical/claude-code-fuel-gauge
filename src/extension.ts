@@ -789,32 +789,32 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): s
     return '';
   }
 
-  const parts: string[] = [];
   const tipLines: string[] = [];
   let severity = 0;
 
   if (pct5h >= 0) {
-    parts.push(`5h ${Math.round(pct5h)}%`);
     tipLines.push(`Session limit (5h): ${Math.round(pct5h)}% used${formatResetSuffix(data.rate_limit_5h_reset, false)}`);
     severity = Math.max(severity, usageSeverity(pct5h));
   }
   if (pct7d >= 0) {
-    parts.push(`wk ${Math.round(pct7d)}%`);
     tipLines.push(`Weekly limit (all models): ${Math.round(pct7d)}% used${formatResetSuffix(data.rate_limit_7d_reset, true)}`);
     severity = Math.max(severity, usageSeverity(pct7d));
   }
 
   const tipFragment = tipLines.join('<br>');
 
-  // Warning-light behavior: normally usage lives only in the hover tooltip
-  // (returned below). The chip pops back into the bar as an alert when a limit
-  // is elevated — colored by the more urgent of the two windows.
+  // Warning-light behavior: usage normally lives only in the hover tooltip
+  // (returned below). When a limit is elevated the chip reappears in the bar
+  // as a numberless alert light — a single colored dot, no percentages or
+  // labels (those stay in the dot's own hover) — colored by the more urgent
+  // of the two windows. The dot signals "you're running hot" without adding
+  // more figures to the bar.
   if (severity >= 1) {
     const md = new vscode.MarkdownString(undefined, true);
     md.supportHtml = true;
     md.appendMarkdown(tipFragment);
 
-    usageStatusBarItem.text = parts.join(' · ');
+    usageStatusBarItem.text = '$(circle-filled)';
     usageStatusBarItem.color = severityColor(severity);
     usageStatusBarItem.tooltip = md;
     usageStatusBarItem.show();
