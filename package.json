@@ -1,7 +1,7 @@
 {
   "name": "claude-code-fuel-gauge",
   "displayName": "Claude Code Fuel Gauge",
-  "description": "A context meter for your context window",
+  "description": "Live context %, cache countdown, model·effort and usage limits for Claude Code — in your VS Code status bar.",
   "version": "0.8.0",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
@@ -72,7 +72,7 @@
         "fuel-gauge.showUsage": {
           "type": "boolean",
           "default": true,
-          "description": "Show your Claude plan's usage limits — session (5-hour) and weekly percentage used, with reset times — in the fuel-gauge hover tooltip. When a limit gets high the numbers also pop into the status bar as a warning (yellow at 70% used, red at 90%). Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
+          "description": "Show your Claude plan's usage limits — session (5-hour) and weekly percentage used, with reset times — in the fuel-gauge hover tooltip. When a limit gets high, a colored alert dot appears in the status bar (yellow at 70% used, red at 90%). Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
         }
       }
     }
