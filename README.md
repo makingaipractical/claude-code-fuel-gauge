@@ -6,35 +6,17 @@
   <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://img.shields.io/visual-studio-marketplace/r/makingaipractical.claude-code-fuel-gauge?label=rating&color=1f8ceb" alt="Rating"></a>
 </p>
 
-Claude Code Fuel Gauge keeps the answers Claude Code makes you ask for a glance away in your VS Code status bar, for every session you're running: **how full your context window is**, **how long until your prompt cache goes cold**, **which model you're on at what effort level**, and **how much of your session and weekly limits you've used**. No `/context`, no `/model`, no `/usage`.
-
-Claude Code shows context usage inside its own chat panel, but only once you're already about half full. Fuel Gauge shows it in the status bar from 0% — whether the Claude panel is open or you're heads-down in your code — and it works for `claude` sessions running in the integrated terminal, which the built-in indicator doesn't cover. It's color-coded green → yellow → red, so you see the ceiling coming instead of hitting it.
-
-Each VS Code window tracks its own workspace, so if you run several Claude Code sessions across projects at once, each window shows the right one — and which model each session is on, at what effort level.
+**Everything Claude Code makes you stop and type a slash command to check — context, cache, model, effort, usage — sits in your VS Code status bar instead. Every session, every window, no commands.**
 
 <p align="center">
   <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % in green, a cache countdown, and the model-effort indicator — opus·high in one, fable·x-high in the other">
 </p>
 
-The **cache countdown** is the part nothing else has. Claude Code caches your prompt prefix so each message comes back fast; that cache goes cold after a few minutes of inactivity (an hour on a Max plan). When it lapses, your next message silently rebuilds it — slower to respond, and on an API-key plan, more expensive too. The countdown shows exactly how long the cache stays warm, so you can get your next message in before it expires.
-
-The **model·effort indicator** shows which model each session is on and at what reasoning effort — `opus·x-high`, `sonnet·medium`, colored by effort with gold for `max`. That visibility does something useful to your habits: when you can *see* you're running `opus·max` on a task that only needed `medium`, you dial it down — and effort is one of the biggest levers on how many tokens a task burns. The gauge turns "which brain am I paying for right now" from a `/model` check into a glance.
-
-The **usage meter** answers the other question you keep opening `/usage` for: how much of your plan is left. Your session (5-hour) and weekly limits live in the hover tooltip, with reset times — and when a window crosses 70%, a colored dot lights up in the bar so you find out while you can still pace yourself, not from a hard stop mid-task.
-
-## Why Fuel Gauge
-
-- **You see it coming.** No more surprise "context low" warnings. The percentage climbs in front of you, so you can plan your exit before quality drops.
-- **The cache never goes cold behind your back.** Glance at the countdown, send your next message while the cache is still warm.
-- **You spend effort deliberately.** Seeing `opus·x-high` in the bar is a standing nudge to match effort to the task instead of leaving max running from yesterday's debugging — and lower effort means fewer tokens.
-- **Limits stop being a surprise.** A dot lights up when your 5-hour or weekly usage crosses 70%; the exact numbers and reset times are one hover away.
-- **Always on, from 0%.** Not gated behind a threshold, not hidden in a panel. It's in the status bar whether you're chatting with Claude or writing code.
-- **Every session at once.** Run Claude Code across five projects and each window shows its own — no guessing which session the number belongs to.
-- **Session planning.** At 60% you know you can fit one more big task; at 80% you know to wrap up. Context becomes a resource you manage, not a cliff you fall off.
-
-### Why not just use the slash commands?
-
-`/context`, `/model` and `/usage` are commands you have to stop and type, and they show you one session at a time. Fuel Gauge is always on, in every window. For context specifically it also counts more honestly: usage is calculated from both input and output tokens plus a compensation for the system-prompt/tool/MCP/CLAUDE.md overhead that Claude Code doesn't expose. With the right `systemOverhead` setting, its percentage tracks the "Context low" point Claude Code actually warns at — so it doesn't report free space when you're effectively full.
+- **Context %** — how full your window is, live from 0% and color-coded green → yellow → red. Covers `claude` sessions in the integrated terminal, which Claude Code's own indicator doesn't. No `/context`.
+- **Cache countdown** — time until your prompt cache goes cold and your next message turns slow (pricier too, on an API key). Nothing else surfaces this.
+- **Model · effort** — which model each session runs, at what reasoning effort (gold at `max`). Seeing `opus·max` on a `medium`-sized task is what makes you dial it down — and effort is a big lever on tokens burned. No `/model`.
+- **Usage limits** — session (5-hour) and weekly usage in the hover, with an alert dot when a limit crosses 70%. No `/usage`.
+- **One per window, always on** — several sessions across projects, each window shows its own. No network calls, no telemetry, ever.
 
 ## What's in the status bar
 
@@ -50,9 +32,15 @@ Fuel Gauge shows up to four items, right-aligned, and one shared hover tooltip t
 - **Stale** — percentage with a circle-slash icon, no color (no update for over an hour — a genuinely abandoned session)
 - **No session** — 0%, no color
 
+Unlike `/context`, the percentage counts both input *and* output tokens, plus a compensation for the system-prompt / tool / MCP / CLAUDE.md overhead Claude Code doesn't expose — so it tracks the real "Context low" point instead of reporting free space when you're effectively full. Tune it with `systemOverhead`.
+
 ### Cache countdown (since v0.6)
 
-A separate item with its own color, so cache urgency reads independently of how full your context is.
+A separate item with its own color, so cache urgency reads independently of how full your context is — here a healthy `34%` context sits green next to an `expired` cache in red.
+
+<p align="center">
+  <img src="images/cache-expired.png" width="300" alt="Status bar showing 34% context in green next to an expired cache countdown in red, and opus·x-high — the cache carries its own color">
+</p>
 
 - **Counting down** — `M:SS`, inherits the context color while there's comfortable time left
 - **Warming (<60s)** — yellow
