@@ -83,6 +83,33 @@ Everything — context, cache, model, effort, usage limits — rides that same l
 
 Works for both the built-in VS Code extension's sessions and `claude` sessions in the integrated terminal.
 
+### The status line slot, and what Fuel Gauge writes
+
+Claude Code allows **one** status line command. Fuel Gauge needs it, because the 5-hour and
+weekly usage percentages exist nowhere else on your machine — they are not in the session
+transcripts and no hook receives them.
+
+So if you already run your own status line (ccstatusline, a powerline script, anything),
+Fuel Gauge asks before taking the slot, saves what was there, and can put it back:
+
+- **Fuel Gauge: Restore Previous Status Line** — puts your command back and stops Fuel Gauge managing the slot.
+- **Fuel Gauge: Connect Status Line** — asks again if you declined.
+- **Fuel Gauge: Show Diagnostics** — read-only report if the gauge is dark.
+- `fuel-gauge.manageStatusLine` — set to `false` to keep Fuel Gauge away from your settings entirely.
+
+The two cannot run at the same time. That is a Claude Code limitation, not a choice we made.
+
+Everything Fuel Gauge touches:
+
+| File | Access | Why |
+| --- | --- | --- |
+| `~/.claude/settings.json` | read, and **one key written with your consent** | sets `statusLine.command`. Every other setting and hook is preserved. |
+| `~/.claude/scripts/context-bridge.sh` | written every activation | the bridge itself. A hand-edited copy is saved to `.fuel-gauge.orig` first. |
+| `~/.claude/fuel-gauge/` | read and written | one small JSON file per session, plus the detected cache TTL. |
+| VS Code global storage | written | your previous status line command, so Restore always has something to give back. |
+
+Nothing else is read or written. No network calls.
+
 The cache countdown auto-detects your plan's TTL by watching whether the cache survives a >5-minute idle gap. Once detected, Fuel Gauge persists it to `~/.claude/fuel-gauge/account_ttl.json` so new sessions inherit it without re-detecting. If a later session sees the persisted value is wrong (a cache miss across a 6–55 minute gap), it corrects itself.
 
 ## Requirements
@@ -104,6 +131,7 @@ The cache countdown auto-detects your plan's TTL by watching whether the cache s
 | `fuel-gauge.cacheWarningSeconds` | `null` (off) | Play 3 short beeps when the cache countdown drops below this many seconds. macOS only. Example: `180` for a 3-minute warning |
 | `fuel-gauge.effortStyle` | `text` | Model·effort item: `text` to show it, `off` to hide it |
 | `fuel-gauge.showUsage` | `true` | Show session/weekly usage in the hover, with the alert dot when a limit is high |
+| `fuel-gauge.manageStatusLine` | `true` | Let Fuel Gauge use Claude Code's status line slot. Set to `false` to keep it out of `~/.claude/settings.json` entirely — the gauge then shows nothing |
 
 ## Known issues
 
@@ -130,6 +158,8 @@ No API calls, no telemetry, no runtime dependencies. Everything runs locally on 
 This is a community tool. Not made by, endorsed by, or affiliated with Anthropic.
 
 ## Version History
+
+**v0.9.0** — **Fuel Gauge no longer takes Claude Code's status line without asking.** Earlier versions overwrote `statusLine.command` in `~/.claude/settings.json` on every activation, silently destroying a custom status line if you had one. Now Fuel Gauge asks first, saves your command, and adds **Restore Previous Status Line** to put it back — plus **Show Diagnostics** for when the gauge is dark, and `fuel-gauge.manageStatusLine` to keep it away from your settings entirely. It also stops rewriting a `settings.json` it cannot parse, preserves other keys in the `statusLine` object, and copies a hand-edited bridge script aside before replacing it. If a previous version destroyed your status line, I'm sorry — there was no backup taken then, so there is nothing I can restore for you now. Upgrading is a no-op if you already had Fuel Gauge working.
 
 **v0.8.1** — Documentation only. Restores the Marketplace badges at the top of this page: shields.io retired its Visual Studio Marketplace badge service in April 2026, so they had been rendering as "retired". No code changes from v0.8.0.
 

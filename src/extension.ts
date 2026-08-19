@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 
 interface ContextStatus {
   cwd: string;
@@ -342,7 +342,9 @@ function writeBridgeConfig() {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  setupBridge();
+  installBridgeScript();
+  // Never awaited: a modal must not block activation.
+  void ensureStatusLineWired(context);
   writeBridgeConfig();
   cleanupStaleSessions();
   cleanupTimer = setInterval(cleanupStaleSessions, 60 * 60 * 1000); // Hourly
@@ -377,6 +379,16 @@ export function activate(context: vscode.ExtensionContext) {
   startCountdown();
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('fuel-gauge.setupStatusLine', () =>
+      ensureStatusLineWired(context, true)
+    ),
+    vscode.commands.registerCommand('fuel-gauge.restoreStatusLine', () =>
+      restoreStatusLine(context)
+    ),
+    vscode.commands.registerCommand('fuel-gauge.showBridgeStatus', () => showBridgeStatus())
+  );
+
+  context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('fuel-gauge')) {
         writeBridgeConfig();
@@ -386,47 +398,430 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-function setupBridge() {
+type StatusLineOwner = 'ours' | 'foreign' | 'optout' | 'unknown';
+
+interface StatusLineBackup {
+  capturedAt: string;
+  capturedByVersion: string;
+  previousStatusLine: unknown;
+  previousCommandString: string | null;
+}
+
+let statusLineOwner: StatusLineOwner = 'unknown';
+let foreignCommand: string | null = null;
+
+function claudePaths() {
   const claudeDir = path.join(os.homedir(), '.claude');
   const scriptsDir = path.join(claudeDir, 'scripts');
-  const bridgePath = path.join(scriptsDir, 'context-bridge.sh');
-  const settingsPath = path.join(claudeDir, 'settings.json');
+  return {
+    claudeDir,
+    scriptsDir,
+    bridgePath: path.join(scriptsDir, 'context-bridge.sh'),
+    settingsPath: path.join(claudeDir, 'settings.json'),
+  };
+}
 
-  // Install bridge script
+// Step 1: the bridge script itself is ours and is rewritten every activation.
+// A hand-edited script is copied aside once so the user's edits are never lost.
+function installBridgeScript() {
+  const { scriptsDir, bridgePath } = claudePaths();
   fs.mkdirSync(scriptsDir, { recursive: true });
-  fs.writeFileSync(bridgePath, BRIDGE_SCRIPT, { mode: 0o755 });
 
-  // Configure statusLine in settings.json
-  let settings: Record<string, unknown> = {};
   try {
-    if (fs.existsSync(settingsPath)) {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    if (fs.existsSync(bridgePath)) {
+      const onDisk = fs.readFileSync(bridgePath, 'utf-8');
+      const origPath = bridgePath + '.fuel-gauge.orig';
+      if (onDisk !== BRIDGE_SCRIPT && !fs.existsSync(origPath)) {
+        fs.copyFileSync(bridgePath, origPath);
+      }
     }
   } catch {
-    // Start fresh if settings file is corrupt
+    // Preserving a hand-edited script is best-effort; never block the install.
   }
 
-  const currentCommand = (settings.statusLine as Record<string, unknown>)?.command;
-  if (currentCommand === bridgePath) {
-    return; // Already configured
+  fs.writeFileSync(bridgePath, BRIDGE_SCRIPT, { mode: 0o755 });
+}
+
+// Step 2: never fall through to a write when settings.json cannot be parsed.
+type SettingsRead =
+  | { kind: 'missing' }
+  | { kind: 'unreadable'; error: string }
+  | { kind: 'ok'; settings: Record<string, unknown> };
+
+function readSettings(): SettingsRead {
+  const { settingsPath } = claudePaths();
+  if (!fs.existsSync(settingsPath)) {
+    return { kind: 'missing' };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { kind: 'unreadable', error: 'settings.json is not a JSON object' };
+    }
+    return { kind: 'ok', settings: parsed as Record<string, unknown> };
+  } catch (err) {
+    return { kind: 'unreadable', error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// Step 3: four cases, not two. Anything that is not a well-formed object with a
+// string command counts as foreign — a bare string, an array, a nested object.
+function classifyStatusLine(
+  settings: Record<string, unknown>,
+  bridgePath: string
+): { owner: 'ours' | 'empty' | 'foreign'; command: string | null } {
+  const raw = settings.statusLine;
+
+  if (raw === undefined || raw === null) {
+    return { owner: 'empty', command: null };
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { owner: 'foreign', command: typeof raw === 'string' ? raw : JSON.stringify(raw) };
   }
 
-  settings.statusLine = {
-    type: 'command',
-    command: bridgePath,
-  };
+  const command = (raw as Record<string, unknown>).command;
+  if (command === undefined || command === null) {
+    return { owner: 'empty', command: null };
+  }
+  if (typeof command !== 'string') {
+    return { owner: 'foreign', command: JSON.stringify(command) };
+  }
+  if (command === bridgePath) {
+    return { owner: 'ours', command };
+  }
+  return { owner: 'foreign', command };
+}
 
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+function extensionVersion(): string {
+  return vscode.extensions.getExtension('MakingAIpractical.claude-code-fuel-gauge')
+    ?.packageJSON?.version ?? 'unknown';
+}
 
-  if (!currentCommand) {
-    vscode.window.showInformationMessage(
-      'Fuel Gauge: Bridge installed. Restart Claude Code to see context usage.'
-    );
-  } else {
+// Step 6: the backup lives in globalStorageUri, which no version of Fuel Gauge prunes.
+function backupPath(context: vscode.ExtensionContext): string {
+  return path.join(context.globalStorageUri.fsPath, 'statusline-backup.json');
+}
+
+function readBackups(context: vscode.ExtensionContext): StatusLineBackup[] {
+  try {
+    const raw = fs.readFileSync(backupPath(context), 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Append rather than "first capture wins", so Restore never hands back a value
+// that predates a change the user made deliberately.
+function recordBackup(context: vscode.ExtensionContext, previous: unknown, command: string | null) {
+  try {
+    fs.mkdirSync(context.globalStorageUri.fsPath, { recursive: true });
+    const entries = readBackups(context);
+    const newest = entries[entries.length - 1];
+    if (newest && newest.previousCommandString === command) {
+      return; // Unchanged since the last capture.
+    }
+    entries.push({
+      capturedAt: new Date().toISOString(),
+      capturedByVersion: extensionVersion(),
+      previousStatusLine: previous ?? null,
+      previousCommandString: command,
+    });
+    fs.writeFileSync(backupPath(context), JSON.stringify(entries, null, 2) + '\n');
+  } catch {
+    // A failed backup must not block the flow, but it must not be silent either.
     vscode.window.showWarningMessage(
-      `Fuel Gauge: Updated statusLine command (was: ${currentCommand}). Restart Claude Code to apply.`
+      'Fuel Gauge: could not save a backup of your existing status line.'
     );
   }
+}
+
+// Step 7: in-place write, object spread. Temp-plus-rename was rejected: it severs
+// symlinked dotfiles and widens 0600 to 0644.
+function writeStatusLine(settings: Record<string, unknown>, bridgePath: string) {
+  const { settingsPath } = claudePaths();
+  const existing =
+    settings.statusLine && typeof settings.statusLine === 'object' && !Array.isArray(settings.statusLine)
+      ? (settings.statusLine as Record<string, unknown>)
+      : {};
+  settings.statusLine = { ...existing, type: 'command', command: bridgePath };
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+}
+
+// Step 8: activate() runs per window. One dialog, not four.
+const MODAL_LOCK_MS = 60 * 1000;
+
+function claimModalLock(context: vscode.ExtensionContext): boolean {
+  const key = 'fuel-gauge.statusLineModalLock';
+  const last = context.globalState.get<number>(key, 0);
+  const now = Date.now();
+  if (now - last < MODAL_LOCK_MS) {
+    return false;
+  }
+  void context.globalState.update(key, now);
+  return true;
+}
+
+// Steps 3-5: the only function permitted to write ~/.claude/settings.json.
+async function ensureStatusLineWired(context: vscode.ExtensionContext, force = false) {
+  const { bridgePath, settingsPath } = claudePaths();
+  const config = vscode.workspace.getConfiguration('fuel-gauge');
+
+  if (!force && config.get<boolean>('manageStatusLine', true) === false) {
+    statusLineOwner = 'optout';
+    return;
+  }
+
+  const read = readSettings();
+
+  if (read.kind === 'unreadable') {
+    statusLineOwner = 'unknown';
+    const open = 'Open settings.json';
+    const choice = await vscode.window.showErrorMessage(
+      `Fuel Gauge: could not read ~/.claude/settings.json (${read.error}). Nothing was changed.`,
+      open
+    );
+    if (choice === open) {
+      void vscode.window.showTextDocument(vscode.Uri.file(settingsPath));
+    }
+    return;
+  }
+
+  const settings = read.kind === 'ok' ? read.settings : {};
+  const state = classifyStatusLine(settings, bridgePath);
+
+  if (state.owner === 'ours') {
+    statusLineOwner = 'ours';
+    foreignCommand = null;
+    return; // The path every existing install takes. No write, no dialog.
+  }
+
+  if (state.owner === 'empty') {
+    recordBackup(context, settings.statusLine, null);
+    writeStatusLine(settings, bridgePath);
+    statusLineOwner = 'ours';
+    const undo = 'Undo';
+    const choice = await vscode.window.showInformationMessage(
+      'Fuel Gauge: status line connected. Restart Claude Code to see context usage.',
+      undo
+    );
+    if (choice === undo) {
+      await restoreStatusLine(context, true);
+    }
+    return;
+  }
+
+  // Foreign command.
+  statusLineOwner = 'foreign';
+  foreignCommand = state.command;
+
+  if (!force && !claimModalLock(context)) {
+    return; // Another window is already asking.
+  }
+
+  const replace = 'Replace';
+  const notNow = 'Not now';
+  const choice = await vscode.window.showWarningMessage(
+    'Fuel Gauge needs Claude Code’s status line slot, which is already in use.',
+    {
+      modal: true,
+      detail:
+        `Your current status line command is:\n\n  ${state.command}\n\n` +
+        'Fuel Gauge would replace it in ~/.claude/settings.json. Your command will be ' +
+        'saved first, and "Fuel Gauge: Restore Previous Status Line" puts it back at any time.\n\n' +
+        'Claude Code allows only one status line command, so the two cannot run at once.',
+    },
+    replace,
+    notNow
+  );
+
+  // Step 5: Escape returns undefined and must mean "ask again next activation".
+  if (choice === undefined) {
+    return;
+  }
+
+  if (choice === notNow) {
+    await config.update('manageStatusLine', false, vscode.ConfigurationTarget.Global);
+    statusLineOwner = 'optout';
+    void vscode.window.showInformationMessage(
+      'Fuel Gauge: leaving your status line alone. Set "fuel-gauge.manageStatusLine" to true, ' +
+      'or run "Fuel Gauge: Connect Status Line", if you change your mind.'
+    );
+    return;
+  }
+
+  // Step 4: re-read and re-check before writing. Closes the read-modify-write window.
+  const recheck = readSettings();
+  if (recheck.kind !== 'ok' && recheck.kind !== 'missing') {
+    void vscode.window.showErrorMessage(
+      'Fuel Gauge: ~/.claude/settings.json changed and can no longer be read. Nothing was changed.'
+    );
+    return;
+  }
+  const fresh = recheck.kind === 'ok' ? recheck.settings : {};
+  const freshState = classifyStatusLine(fresh, bridgePath);
+  if (freshState.command !== state.command) {
+    void vscode.window.showWarningMessage(
+      'Fuel Gauge: your status line changed while the dialog was open, so nothing was changed. ' +
+      'Run "Fuel Gauge: Connect Status Line" to try again.'
+    );
+    return;
+  }
+
+  recordBackup(context, fresh.statusLine, state.command);
+  writeStatusLine(fresh, bridgePath);
+  statusLineOwner = 'ours';
+  foreignCommand = null;
+  void vscode.window.showInformationMessage(
+    'Fuel Gauge: status line connected. Restart Claude Code to see context usage.'
+  );
+}
+
+async function restoreStatusLine(context: vscode.ExtensionContext, silent = false) {
+  const { bridgePath, settingsPath } = claudePaths();
+  const entries = readBackups(context);
+  const backup = entries[entries.length - 1];
+
+  if (!backup) {
+    void vscode.window.showInformationMessage(
+      'Fuel Gauge: no saved status line to restore. Nothing was changed.'
+    );
+    return;
+  }
+
+  const read = readSettings();
+  if (read.kind === 'unreadable') {
+    void vscode.window.showErrorMessage(
+      `Fuel Gauge: could not read ~/.claude/settings.json (${read.error}). Nothing was changed.`
+    );
+    return;
+  }
+  const settings = read.kind === 'ok' ? read.settings : {};
+  const current = classifyStatusLine(settings, bridgePath);
+
+  if (!silent) {
+    const restore = 'Restore';
+    const choice = await vscode.window.showWarningMessage(
+      'Restore your previous Claude Code status line?',
+      {
+        modal: true,
+        detail:
+          `This will set:\n\n  ${backup.previousCommandString ?? '(no status line)'}\n\n` +
+          `replacing:\n\n  ${current.command ?? '(no status line)'}\n\n` +
+          'Fuel Gauge will stop managing the status line and its readouts will go dark.',
+      },
+      restore
+    );
+    if (choice !== restore) {
+      return;
+    }
+  }
+
+  if (backup.previousStatusLine === null || backup.previousStatusLine === undefined) {
+    delete settings.statusLine;
+  } else {
+    settings.statusLine = backup.previousStatusLine;
+  }
+
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `Fuel Gauge: could not write ~/.claude/settings.json (${err instanceof Error ? err.message : String(err)}).`
+    );
+    return;
+  }
+
+  await vscode.workspace
+    .getConfiguration('fuel-gauge')
+    .update('manageStatusLine', false, vscode.ConfigurationTarget.Global);
+  statusLineOwner = 'optout';
+  foreignCommand = backup.previousCommandString;
+
+  void vscode.window.showInformationMessage(
+    'Fuel Gauge: previous status line restored. Restart Claude Code to apply.'
+  );
+}
+
+// Step 9: read-only diagnostics, so "my gauge is dark" becomes a paste.
+function showBridgeStatus() {
+  const { bridgePath, settingsPath, claudeDir } = claudePaths();
+  const out = vscode.window.createOutputChannel('Claude Code Fuel Gauge');
+  const lines: string[] = [];
+  const add = (k: string, v: string) => lines.push(`${k.padEnd(28)} ${v}`);
+
+  add('Extension version', extensionVersion());
+
+  try {
+    const st = fs.statSync(bridgePath);
+    add('Bridge script', `present, modified ${st.mtime.toISOString()}`);
+    add('Bridge matches this version', fs.readFileSync(bridgePath, 'utf-8') === BRIDGE_SCRIPT ? 'yes' : 'NO');
+  } catch {
+    add('Bridge script', 'MISSING');
+  }
+
+  const read = readSettings();
+  if (read.kind === 'unreadable') {
+    add('~/.claude/settings.json', `UNREADABLE — ${read.error}`);
+  } else if (read.kind === 'missing') {
+    add('~/.claude/settings.json', 'does not exist');
+  } else {
+    const state = classifyStatusLine(read.settings, bridgePath);
+    add('~/.claude/settings.json', 'parsed OK');
+    add('statusLine.command', state.command ?? '(none)');
+    add('Owned by Fuel Gauge', state.owner === 'ours' ? 'yes' : 'no');
+  }
+
+  add('manageStatusLine setting', String(
+    vscode.workspace.getConfiguration('fuel-gauge').get<boolean>('manageStatusLine', true)
+  ));
+  add('In-memory owner', statusLineOwner);
+
+  // A project-level statusLine outranks ~/.claude and would silently win.
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    for (const name of ['settings.json', 'settings.local.json']) {
+      const p = path.join(folder.uri.fsPath, '.claude', name);
+      try {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (parsed && typeof parsed === 'object' && 'statusLine' in parsed) {
+          add('OVERRIDES US', `${p} also sets statusLine`);
+        }
+      } catch {
+        // Absent or unparseable project settings are not our problem to report.
+      }
+    }
+  }
+
+  try {
+    const dir = path.join(claudeDir, 'fuel-gauge');
+    const files = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.json') && !META_FILES.has(f))
+      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    if (files.length) {
+      const ageMin = Math.round((Date.now() - files[0].m) / 60000);
+      add('Newest session file', `${files[0].f} (${ageMin} min old)`);
+    } else {
+      add('Newest session file', 'none — no session has written yet');
+    }
+    add('Session files', String(files.length));
+  } catch {
+    add('Session directory', 'MISSING');
+  }
+
+  try {
+    execFileSync('python3', ['--version'], { stdio: 'pipe' });
+    add('python3', 'found');
+  } catch {
+    add('python3', 'NOT FOUND — the bridge cannot parse payloads without it');
+  }
+
+  out.clear();
+  out.appendLine('Claude Code Fuel Gauge — diagnostics');
+  out.appendLine('');
+  lines.forEach((l) => out.appendLine(l));
+  out.show();
 }
 
 function cleanupStaleSessions() {
@@ -840,13 +1235,30 @@ function renderStatus() {
   const usageTip = renderUsage(data, fileAbandoned);
 
   if (!data) {
+    if (statusLineOwner === 'foreign' || statusLineOwner === 'optout') {
+      statusBarItem.text = '$(claude)$(dashboard) $(warning)';
+      statusBarItem.color = undefined;
+      statusBarItem.tooltip =
+        statusLineOwner === 'optout'
+          ? 'Fuel Gauge is not connected — you chose to keep your own status line. Click to connect.'
+          : `Fuel Gauge is not connected — Claude Code's status line is used by:\n  ${foreignCommand ?? 'another command'}\nClick to connect.`;
+      statusBarItem.command = 'fuel-gauge.setupStatusLine';
+      statusBarItem.show();
+      cacheStatusBarItem.hide();
+      return;
+    }
     statusBarItem.text = '$(claude)$(dashboard) 0%';
     statusBarItem.color = undefined;
     statusBarItem.tooltip = 'Fuel Gauge — No active Claude Code session';
+    statusBarItem.command = undefined;
     statusBarItem.show();
     cacheStatusBarItem.hide();
     return;
   }
+
+  // The click target is only ever set on the not-connected path above; clear it
+  // on every other path or the assignment sticks.
+  statusBarItem.command = undefined;
 
   const pct = Math.round(data.used_percentage);
   const config = vscode.workspace.getConfiguration('fuel-gauge');
