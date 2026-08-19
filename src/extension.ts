@@ -51,33 +51,40 @@ cw = data.get('context_window', {})
 cu = cw.get('current_usage') or {}
 window_size = cw.get('context_window_size', 200000) or 200000
 
-# Read system overhead from config (written by VS Code extension)
-overhead = 18000
+# Read system overhead from config (written by VS Code extension). Only used on the
+# fallback path below, when Claude Code sends no pre-computed percentage.
+overhead = 0
 config_path = os.path.join(os.path.expanduser('~'), '.claude', 'fuel-gauge', 'config.json')
 try:
     with open(config_path) as f:
         cfg = json.load(f)
-        overhead = cfg.get('systemOverhead', 18000)
+        overhead = cfg.get('systemOverhead', 0)
 except Exception:
     pass
 
-# Compute percentage including output tokens for accurate effective usage
-# (used_percentage from Claude Code is input-only and underreports at high context)
-# Subtract system overhead from window size to account for invisible tokens
-# (system prompt, tool definitions, MCP configs, CLAUDE.md)
+# Claude Code already computes the context percentage and puts it in the payload as
+# used_percentage: round((input + cache_creation + cache_read) / context_window_size * 100).
+# That is the number /context and the Claude Code status line show, so pass it straight
+# through and the two always agree. Only fall back to computing a percentage ourselves
+# when Claude Code sends no used_percentage at all.
 inp = cu.get('input_tokens', 0) or 0
 out = cu.get('output_tokens', 0) or 0
 cache_create = cu.get('cache_creation_input_tokens', 0) or 0
 cache_read = cu.get('cache_read_input_tokens', 0) or 0
 total = inp + out + cache_create + cache_read
 
-if total > 0 and window_size > 0:
+used_raw = cw.get('used_percentage')
+if isinstance(used_raw, (int, float)) and not isinstance(used_raw, bool):
+    used_pct = float(used_raw)
+    remaining_pct = max(0.0, 100.0 - used_pct)
+elif total > 0 and window_size > 0:
+    # Fallback only. systemOverhead, if the user set one, is subtracted here.
     effective_window = max(1, window_size - overhead)
     used_pct = min(100.0, total * 100.0 / effective_window)
     remaining_pct = max(0.0, 100.0 - used_pct)
 else:
-    used_pct = cw.get('used_percentage', 0) or 0
-    remaining_pct = cw.get('remaining_percentage', 100) or 100
+    used_pct = 0
+    remaining_pct = 100
 
 # Use workspace.project_dir (stable launch dir) with cwd as fallback
 ws = data.get('workspace', {})
@@ -331,7 +338,7 @@ function writeBridgeConfig() {
   const fuelGaugeDir = path.join(os.homedir(), '.claude', 'fuel-gauge');
   const configPath = path.join(fuelGaugeDir, 'config.json');
   const config = vscode.workspace.getConfiguration('fuel-gauge');
-  const systemOverhead = config.get<number>('systemOverhead', 18000);
+  const systemOverhead = config.get<number>('systemOverhead', 0);
 
   try {
     fs.mkdirSync(fuelGaugeDir, { recursive: true });

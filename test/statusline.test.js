@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const Module = require('module');
+const { execFileSync } = require('child_process');
 
 const EXT_DIR = path.resolve(__dirname, '..');
 const OUT = path.join(EXT_DIR, 'out', 'extension.js');
@@ -231,6 +232,77 @@ async function run(name, fn) {
     await new Promise((r) => setTimeout(r, 60));
     check('.fuel-gauge.orig created', fs.existsSync(bp + '.fuel-gauge.orig'));
     check('orig holds the user edits', fs.readFileSync(bp + '.fuel-gauge.orig', 'utf-8').includes('my own edits'));
+  });
+
+  // 11. CONTEXT PERCENTAGE — the bridge passes Claude Code's own number through untouched,
+  //     and only computes one itself when the payload carries none.
+  await run('context-percentage', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+
+    const runBridge = (payload) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify(payload),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(
+        path.join(TMPROOT, '.claude', 'fuel-gauge', payload.session_id + '.json'), 'utf-8'));
+    };
+
+    // Token sums here would compute to ~95%. Claude Code says 38, so we must show 38.
+    const passThrough = runBridge({
+      session_id: 'pass-through',
+      workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000,
+        used_percentage: 38,
+        remaining_percentage: 62,
+        total_input_tokens: 76000,
+        current_usage: {
+          input_tokens: 2, output_tokens: 2693,
+          cache_creation_input_tokens: 1165, cache_read_input_tokens: 186000,
+        },
+      },
+    });
+    check('passes Claude Code used_percentage through unmodified', passThrough.used_percentage === 38,
+      String(passThrough.used_percentage));
+    check('remaining is the complement', passThrough.remaining_percentage === 62,
+      String(passThrough.remaining_percentage));
+
+    // Zero is a real reading, not "missing" — it must not fall through to the computed branch.
+    const zero = runBridge({
+      session_id: 'zero',
+      workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, used_percentage: 0, total_input_tokens: 0,
+        current_usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    check('zero percent survives as zero', zero.used_percentage === 0, String(zero.used_percentage));
+
+    // No pre-computed percentage: fall back to our own sum over the RAW window (no overhead).
+    const fallback = runBridge({
+      session_id: 'fallback',
+      workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, total_input_tokens: 100000,
+        current_usage: {
+          input_tokens: 40000, output_tokens: 0,
+          cache_creation_input_tokens: 10000, cache_read_input_tokens: 50000,
+        },
+      },
+    });
+    check('fallback divides by the full window, no overhead subtracted', fallback.used_percentage === 50,
+      String(fallback.used_percentage));
+
+    // No usage data at all: 0%, never a crash.
+    const empty = runBridge({ session_id: 'empty', workspace: { project_dir: '/w' }, context_window: {} });
+    check('no usage data reads as 0%', empty.used_percentage === 0, String(empty.used_percentage));
+
+    // The extension writes systemOverhead 0 into the bridge's config file.
+    const cfgFile = JSON.parse(fs.readFileSync(path.join(TMPROOT, '.claude', 'fuel-gauge', 'config.json'), 'utf-8'));
+    check('bridge config carries systemOverhead 0', cfgFile.systemOverhead === 0, String(cfgFile.systemOverhead));
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

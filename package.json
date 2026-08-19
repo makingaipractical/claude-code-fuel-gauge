@@ -50,8 +50,9 @@
         },
         "fuel-gauge.systemOverhead": {
           "type": "number",
-          "default": 18000,
-          "description": "Estimated system token overhead (system prompt, tools, MCP, CLAUDE.md). These tokens are invisible to the statusline but consume context. Increase if Fuel Gauge underreports compared to Claude Code's 'Context low' warning."
+          "default": 0,
+          "description": "A number of tokens to subtract from the size of the context window before Fuel Gauge works out the percentage. You no longer need this: Fuel Gauge now shows the percentage Claude Code itself reports. A value you set here is used only when Claude Code sends no percentage of its own, which almost never happens.",
+          "deprecationMessage": "Fuel Gauge no longer needs this setting and you can safely remove it. It now shows the same context percentage that Claude Code's /context command and status line report, so there is nothing left to correct for. A value you set here still works, but only when Claude Code sends no percentage of its own."
         },
         "fuel-gauge.cacheTTL": {
           "type": [
