@@ -1,9 +1,8 @@
 # Claude Code Fuel Gauge
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://img.shields.io/visual-studio-marketplace/v/makingaipractical.claude-code-fuel-gauge?label=VS%20Marketplace&color=1f8ceb" alt="VS Marketplace version"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://img.shields.io/visual-studio-marketplace/i/makingaipractical.claude-code-fuel-gauge?label=installs&color=1f8ceb" alt="Installs"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://img.shields.io/visual-studio-marketplace/r/makingaipractical.claude-code-fuel-gauge?label=rating&color=1f8ceb" alt="Rating"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://vsmarketplacebadges.dev/version-short/makingaipractical.claude-code-fuel-gauge.svg?label=VS%20Marketplace&color=1f8ceb" alt="VS Marketplace version"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://vsmarketplacebadges.dev/installs-short/makingaipractical.claude-code-fuel-gauge.svg?label=installs&color=1f8ceb" alt="Installs"></a>
 </p>
 
 **Everything Claude Code makes you stop and type a slash command to check — context, cache, model, effort, usage — sits in your VS Code status bar instead. Every session, every window, no commands.**
