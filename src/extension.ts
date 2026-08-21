@@ -1069,10 +1069,24 @@ function maybePlayCacheWarningBeep(data: ContextStatus, remaining: number) {
 }
 
 // Severity → ThemeColor (0 green, 1 yellow, 2 red).
+// Reused instances, not fresh ones: VS Code compares status bar colors by
+// reference, so a new ThemeColor on every render forced a needless re-apply
+// once a second on three items.
+const COLOR_RED = new vscode.ThemeColor('charts.red');
+const COLOR_YELLOW = new vscode.ThemeColor('charts.yellow');
+const COLOR_GREEN = new vscode.ThemeColor('charts.green');
+
 function severityColor(sev: number): vscode.ThemeColor {
-  if (sev >= 2) { return new vscode.ThemeColor('charts.red'); }
-  if (sev >= 1) { return new vscode.ThemeColor('charts.yellow'); }
-  return new vscode.ThemeColor('charts.green');
+  if (sev >= 2) { return COLOR_RED; }
+  if (sev >= 1) { return COLOR_YELLOW; }
+  return COLOR_GREEN;
+}
+
+// Wall-clock HH:MM, for hover text that must stay byte-identical between
+// one-second renders.
+function formatClockTime(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 // Title-case a hyphenated label: 'x-high' → 'X-High', 'opus' → 'Opus'.
@@ -1315,24 +1329,30 @@ function renderStatus() {
 
   if (remaining <= 0) {
     cacheText = '$(circle-slash) expired';
-    cacheColor = new vscode.ThemeColor('charts.red');
+    cacheColor = COLOR_RED;
     cacheTooltipFragment = `Cache: expired (${ttlLabel})`;
   } else {
     cacheText = formatCountdown(remaining);
     if (remaining < 15) {
-      cacheColor = new vscode.ThemeColor('charts.red');
+      cacheColor = COLOR_RED;
     } else if (remaining < 60) {
-      cacheColor = new vscode.ThemeColor('charts.yellow');
+      cacheColor = COLOR_YELLOW;
     } else {
       cacheColor = contextColor;
     }
-    cacheTooltipFragment = `Cache: ${formatCountdown(remaining)} remaining (${ttlLabel})`;
+    // The hover names the deadline instead of repeating the countdown that is
+    // already ticking in the bar beside it. That keeps the tooltip string
+    // identical from tick to tick, and VS Code compares tooltips by content —
+    // so an open hover is left alone instead of being torn down every second.
+    // Changing an item's text never touches the hover, so the bar keeps
+    // counting down as before.
+    cacheTooltipFragment = `Cache expires ${formatClockTime(lastApiCallTs + ttl)} (${ttlLabel})`;
   }
 
   // Rate-limit warning when overage downgrade is imminent.
   const rl = data.rate_limit_5h_pct ?? -1;
   const rateLimitWarning = rl >= 95
-    ? ` · 5h limit ${rl}% — TTL may downgrade`
+    ? ` · 5h limit ${Math.round(rl)}% — TTL may downgrade`
     : '';
 
   cacheStatusBarItem.text = cacheText;
