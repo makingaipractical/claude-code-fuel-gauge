@@ -305,6 +305,64 @@ async function run(name, fn) {
     check('bridge config carries systemOverhead 0', cfgFile.systemOverhead === 0, String(cfgFile.systemOverhead));
   });
 
+  // 12. BACKUP FAILS -> the takeover is abandoned, not completed.
+  //     The modal promises the existing command is saved first. If it cannot be
+  //     saved, replacing it would leave nothing to restore from.
+  await run('backup-fails-no-takeover', async (ext) => {
+    const body = JSON.stringify({
+      statusLine: { type: 'command', command: '/usr/local/bin/ccstatusline' },
+    }, null, 2) + '\n';
+    fs.writeFileSync(settingsPath, body);
+    // A plain file where the backup directory must go: mkdirSync throws.
+    fs.writeFileSync(globalStorage, 'not a directory\n');
+    answers = ['Replace'];
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 80));
+    check('foreign command survived', fs.readFileSync(settingsPath, 'utf-8') === body);
+    check('user was warned the backup failed',
+      messages.some((m) => /could not save a backup/i.test(m[1])));
+    check('user was told the status line was left alone',
+      messages.some((m) => /left alone/i.test(m[1])));
+  });
+
+  // 13. BRIDGE SCRIPT CANNOT BE WRITTEN -> activation survives.
+  //     This used to throw straight out of activate(), taking every command with
+  //     it, including Show Diagnostics — the one built to explain this failure.
+  await run('bridge-unwritable', async (ext) => {
+    // A plain file where ~/.claude/scripts must go: mkdirSync throws, and no
+    // bridge script exists, so the install reports 'absent'.
+    fs.writeFileSync(path.join(TMPROOT, '.claude', 'scripts'), 'not a directory\n');
+    let threw = null;
+    try { ext.activate(ctx()); } catch (e) { threw = e; }
+    await new Promise((r) => setTimeout(r, 80));
+    check('activate did not throw', threw === null, threw && threw.message);
+    check('Show Diagnostics still registered', typeof registered['fuel-gauge.showBridgeStatus'] === 'function');
+    check('Connect Status Line still registered', typeof registered['fuel-gauge.setupStatusLine'] === 'function');
+    check('user was warned the gauge cannot update',
+      messages.some((m) => /could not write the bridge script/i.test(m[1])));
+    check('settings.json was not written to point at a missing script',
+      !fs.existsSync(settingsPath));
+  });
+
+  // 14. pollInterval is clamped -> no millisecond scan loop.
+  await run('poll-interval-clamp', async (ext) => {
+    configStore['pollInterval'] = 0;
+    const realSetInterval = global.setInterval;
+    const delays = [];
+    global.setInterval = (fn, ms, ...rest) => { delays.push(ms); return realSetInterval(fn, ms, ...rest); };
+    try {
+      ext.activate(ctx());
+      await new Promise((r) => realSetInterval(r, 40));
+    } finally {
+      global.setInterval = realSetInterval;
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    }
+    check('a poll timer was registered', delays.length > 0, JSON.stringify(delays));
+    check('pollInterval 0 clamped to 5s, not a 0ms loop',
+      delays.every((d) => d >= 1000), JSON.stringify(delays));
+    check('the clamp floor is 5s', delays.includes(5000), JSON.stringify(delays));
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

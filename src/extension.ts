@@ -202,7 +202,7 @@ output = {
 }
 
 print(json.dumps(output, indent=2))
-" > "$BD_DIR/$session_id.json.tmp" 2>>"$BD_LOG" && mv "$BD_DIR/$session_id.json.tmp" "$BD_DIR/$session_id.json"
+" > "$BD_DIR/$session_id.json.$$.tmp" 2>>"$BD_LOG" && mv "$BD_DIR/$session_id.json.$$.tmp" "$BD_DIR/$session_id.json"
 `;
 
 let statusBarItem: vscode.StatusBarItem;
@@ -272,17 +272,26 @@ function isClaudeCommand(commandLine: string): boolean {
   return basename === 'claude';
 }
 
-function clearTracking() {
-  // Delete session file so Tier 3 doesn't pick up stale data
-  if (trackedSessionId) {
-    const filePath = path.join(os.homedir(), '.claude', 'fuel-gauge', `${trackedSessionId}.json`);
-    try { fs.unlinkSync(filePath); } catch { /* already gone */ }
-  }
+// Drop the lock and rediscover, leaving the file alone. The session file
+// belongs to the bridge; a read or parse error is not evidence the session
+// ended, and a half-written file from a concurrent bridge run heals itself on
+// the next status line update.
+function releaseTracking() {
   trackedSessionId = undefined;
   trackedExecution = undefined;
   trackedTerminal = undefined;
   claudeStartTime = undefined;
   lastTrackedTimestamp = undefined;
+}
+
+// The session genuinely ended (terminal closed, execution finished). Delete the
+// file too, so Tier 3 does not pick up stale data.
+function clearTracking() {
+  if (trackedSessionId) {
+    const filePath = path.join(os.homedir(), '.claude', 'fuel-gauge', `${trackedSessionId}.json`);
+    try { fs.unlinkSync(filePath); } catch { /* already gone */ }
+  }
+  releaseTracking();
 }
 
 function setupTerminalTracking(context: vscode.ExtensionContext) {
@@ -349,9 +358,24 @@ function writeBridgeConfig() {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  installBridgeScript();
-  // Never awaited: a modal must not block activation.
-  void ensureStatusLineWired(context);
+  const bridge = installBridgeScript();
+  if (bridge === 'absent') {
+    void vscode.window.showWarningMessage(
+      'Fuel Gauge: could not write the bridge script to ~/.claude/scripts, so the gauge cannot update. ' +
+      'Run "Fuel Gauge: Show Diagnostics" for details.'
+    );
+  } else if (bridge === 'stale') {
+    void vscode.window.showWarningMessage(
+      'Fuel Gauge: could not update the bridge script in ~/.claude/scripts. An older copy is still ' +
+      'in place, so the gauge keeps working. Run "Fuel Gauge: Show Diagnostics" for details.'
+    );
+  }
+  // Never awaited: a modal must not block activation. Skipped when there is no
+  // bridge script at all — pointing settings.json at a file that does not exist
+  // is worse than leaving the user's status line alone.
+  if (bridge !== 'absent') {
+    void ensureStatusLineWired(context);
+  }
   writeBridgeConfig();
   cleanupStaleSessions();
   cleanupTimer = setInterval(cleanupStaleSessions, 60 * 60 * 1000); // Hourly
@@ -430,9 +454,26 @@ function claudePaths() {
 
 // Step 1: the bridge script itself is ours and is rewritten every activation.
 // A hand-edited script is copied aside once so the user's edits are never lost.
-function installBridgeScript() {
+//
+// Every write here is guarded. This is the first thing activate() does, so an
+// unwritable ~/.claude/scripts used to throw straight out of activation and
+// take the whole extension with it — including Show Diagnostics, the one
+// command built to explain that exact failure.
+//
+//   'installed' — the current script is on disk
+//   'stale'     — the rewrite failed but an older script is still there, so
+//                 the gauge keeps working
+//   'absent'    — no bridge script at all; nothing will update
+type BridgeInstall = 'installed' | 'stale' | 'absent';
+
+function installBridgeScript(): BridgeInstall {
   const { scriptsDir, bridgePath } = claudePaths();
-  fs.mkdirSync(scriptsDir, { recursive: true });
+
+  try {
+    fs.mkdirSync(scriptsDir, { recursive: true });
+  } catch {
+    return fs.existsSync(bridgePath) ? 'stale' : 'absent';
+  }
 
   try {
     if (fs.existsSync(bridgePath)) {
@@ -446,7 +487,12 @@ function installBridgeScript() {
     // Preserving a hand-edited script is best-effort; never block the install.
   }
 
-  fs.writeFileSync(bridgePath, BRIDGE_SCRIPT, { mode: 0o755 });
+  try {
+    fs.writeFileSync(bridgePath, BRIDGE_SCRIPT, { mode: 0o755 });
+    return 'installed';
+  } catch {
+    return fs.existsSync(bridgePath) ? 'stale' : 'absent';
+  }
 }
 
 // Step 2: never fall through to a write when settings.json cannot be parsed.
@@ -521,13 +567,16 @@ function readBackups(context: vscode.ExtensionContext): StatusLineBackup[] {
 
 // Append rather than "first capture wins", so Restore never hands back a value
 // that predates a change the user made deliberately.
-function recordBackup(context: vscode.ExtensionContext, previous: unknown, command: string | null) {
+// Returns false when nothing was saved. The caller that is about to replace
+// somebody else's command must honour that: the modal promises the existing
+// command is kept, and a takeover with no restorable copy breaks the promise.
+function recordBackup(context: vscode.ExtensionContext, previous: unknown, command: string | null): boolean {
   try {
     fs.mkdirSync(context.globalStorageUri.fsPath, { recursive: true });
     const entries = readBackups(context);
     const newest = entries[entries.length - 1];
     if (newest && newest.previousCommandString === command) {
-      return; // Unchanged since the last capture.
+      return true; // Unchanged since the last capture.
     }
     entries.push({
       capturedAt: new Date().toISOString(),
@@ -536,24 +585,37 @@ function recordBackup(context: vscode.ExtensionContext, previous: unknown, comma
       previousCommandString: command,
     });
     fs.writeFileSync(backupPath(context), JSON.stringify(entries, null, 2) + '\n');
+    return true;
   } catch {
-    // A failed backup must not block the flow, but it must not be silent either.
-    vscode.window.showWarningMessage(
+    // Never silent, and never ignored by a caller about to overwrite something.
+    void vscode.window.showWarningMessage(
       'Fuel Gauge: could not save a backup of your existing status line.'
     );
+    return false;
   }
 }
 
 // Step 7: in-place write, object spread. Temp-plus-rename was rejected: it severs
 // symlinked dotfiles and widens 0600 to 0644.
-function writeStatusLine(settings: Record<string, unknown>, bridgePath: string) {
+// Returns false rather than throwing: both callers sit inside a void'd async,
+// where an exception is swallowed and the user is told nothing at all.
+function writeStatusLine(settings: Record<string, unknown>, bridgePath: string): boolean {
   const { settingsPath } = claudePaths();
   const existing =
     settings.statusLine && typeof settings.statusLine === 'object' && !Array.isArray(settings.statusLine)
       ? (settings.statusLine as Record<string, unknown>)
       : {};
   settings.statusLine = { ...existing, type: 'command', command: bridgePath };
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    return true;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(
+      `Fuel Gauge: could not write ~/.claude/settings.json (${reason}). Your status line was not changed.`
+    );
+    return false;
+  }
 }
 
 // Step 8: activate() runs per window. One dialog, not four.
@@ -605,9 +667,20 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   }
 
   if (state.owner === 'empty') {
-    recordBackup(context, settings.statusLine, null);
-    writeStatusLine(settings, bridgePath);
+    // An empty slot holds nothing that can be lost, so a failed backup does not
+    // stop the connection here — it only costs the Undo, which needs a saved
+    // entry to put the slot back the way it was.
+    const backedUp = recordBackup(context, settings.statusLine, null);
+    if (!writeStatusLine(settings, bridgePath)) {
+      return;
+    }
     statusLineOwner = 'ours';
+    if (!backedUp) {
+      void vscode.window.showInformationMessage(
+        'Fuel Gauge: status line connected. Restart Claude Code to see context usage.'
+      );
+      return;
+    }
     const undo = 'Undo';
     const choice = await vscode.window.showInformationMessage(
       'Fuel Gauge: status line connected. Restart Claude Code to see context usage.',
@@ -676,8 +749,18 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     return;
   }
 
-  recordBackup(context, fresh.statusLine, state.command);
-  writeStatusLine(fresh, bridgePath);
+  // The modal told the user their command would be saved first. If it was not,
+  // we do not take the slot — a takeover with nothing to restore from is
+  // exactly the damage this whole flow exists to prevent.
+  if (!recordBackup(context, fresh.statusLine, state.command)) {
+    void vscode.window.showWarningMessage(
+      'Fuel Gauge: your status line was left alone, because the backup could not be saved.'
+    );
+    return;
+  }
+  if (!writeStatusLine(fresh, bridgePath)) {
+    return;
+  }
   statusLineOwner = 'ours';
   foreignCommand = null;
   void vscode.window.showInformationMessage(
@@ -853,6 +936,26 @@ function cleanupStaleSessions() {
     }
   }
 
+  // Bridge temp files are named <session>.json.<pid>.tmp and renamed into place
+  // immediately. Anything still here an hour later is from a run that died
+  // mid-write, and nothing will ever collect it otherwise.
+  try {
+    const tmpCutoff = Date.now() - (60 * 60 * 1000);
+    for (const file of fs.readdirSync(fuelGaugeDir)) {
+      if (!file.endsWith('.tmp')) { continue; }
+      const tmpPath = path.join(fuelGaugeDir, file);
+      try {
+        if (fs.statSync(tmpPath).mtimeMs < tmpCutoff) {
+          fs.unlinkSync(tmpPath);
+        }
+      } catch {
+        // Skip
+      }
+    }
+  } catch {
+    // Directory listing is best-effort
+  }
+
   // Trim bridge log to last 50 lines
   const logPath = path.join(fuelGaugeDir, 'bridge.log');
   try {
@@ -873,7 +976,13 @@ function startPolling() {
   }
 
   const config = vscode.workspace.getConfiguration('fuel-gauge');
-  const intervalSeconds = config.get<number>('pollInterval', 15);
+  // Clamped: an unclamped 0, a negative, or a non-number turned this into a
+  // full directory scan every millisecond — the one setting a user can get
+  // wrong and burn a core with.
+  const configured = config.get<number>('pollInterval', 15);
+  const intervalSeconds = Number.isFinite(configured)
+    ? Math.min(Math.max(configured as number, 5), 3600)
+    : 15;
 
   updateStatus();
   pollTimer = setInterval(updateStatus, intervalSeconds * 1000);
@@ -935,8 +1044,9 @@ function findMatchingSession(): ContextStatus | undefined {
         return data;
       }
     } catch {
-      // File gone or unreadable — clear lock, fall through to Tier 3
-      clearTracking();
+      // Unreadable or half-written — drop the lock and rediscover via Tier 3,
+      // but never delete: the file is the bridge's, not ours.
+      releaseTracking();
     }
   }
 
