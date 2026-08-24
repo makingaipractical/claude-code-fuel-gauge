@@ -10,17 +10,25 @@ const { execFileSync } = require('child_process');
 const EXT_DIR = path.resolve(__dirname, '..');
 const OUT = path.join(EXT_DIR, 'out', 'extension.js');
 
-let TMPROOT, answers, messages, settingsPath, globalStorage, configStore;
+let TMPROOT, answers, messages, settingsPath, globalStorage, configStore, bars;
 
 function makeVscode() {
   const cfg = {
     get: (k, d) => (k in configStore ? configStore[k] : d),
     update: async (k, v) => { configStore[k] = v; },
   };
-  const bar = () => ({
-    text: '', tooltip: '', color: undefined, command: undefined,
-    show() {}, hide() {}, dispose() {},
-  });
+  // Status bar items are recorded so a scenario can read back what the user
+  // would actually see: the text, the tooltip, and whether the item is shown.
+  const bar = (alignment, priority) => {
+    const item = {
+      priority, text: '', tooltip: '', color: undefined, command: undefined,
+      visible: false,
+      show() { this.visible = true; }, hide() { this.visible = false; },
+      dispose() {},
+    };
+    bars.push(item);
+    return item;
+  };
   return {
     window: {
       createStatusBarItem: bar,
@@ -75,6 +83,7 @@ function freshSandbox(name) {
   messages = [];
   registered = {};
   configStore = {};
+  bars = [];
   global.__vscode = makeVscode();
   delete require.cache[OUT];
 }
@@ -90,6 +99,9 @@ function ctx() {
 
 const bridgePath = () => path.join(TMPROOT, '.claude', 'scripts', 'context-bridge.sh');
 const readSettings = () => JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+// The four status bar items, by the priority the extension gives them:
+// 100 context, 99 cache countdown, 98 model/effort, 97 usage alert.
+const barAt = (priority) => bars.find((b) => b.priority === priority);
 
 let pass = 0, fail = 0;
 function check(label, cond, detail) {
@@ -519,6 +531,29 @@ async function run(name, fn) {
       fs.readFileSync(path.join(fgDir, 'bridge.log'), 'utf-8').trim() === '',
       fs.existsSync(path.join(fgDir, 'bridge.log'))
         ? fs.readFileSync(path.join(fgDir, 'bridge.log'), 'utf-8') : '');
+  });
+
+  // 16. NO SESSION FOR THIS WINDOW -> say so, don't paint a measured-looking 0%.
+  await run('no-session-label', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+
+    const context = () => barAt(100);
+    check('context item says there is no session, not 0%',
+      context().text === '$(claude)$(dashboard) no session', context().text);
+    check('tooltip explains that sessions match on their folder',
+      /matched by the folder they were started in/.test(String(context().tooltip)),
+      String(context().tooltip));
+    check('no colour on the no-session item', context().color === undefined);
+    check('cache countdown hidden', barAt(99).visible === false);
+    check('model/effort item hidden', barAt(98).visible === false);
+    check('usage alert hidden', barAt(97).visible === false);
+
+    // Still true one render later, once the status line setup has settled.
+    await new Promise((r) => setTimeout(r, 1150));
+    check('still reads "no session" after a re-render',
+      context().text === '$(claude)$(dashboard) no session', context().text);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

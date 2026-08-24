@@ -1436,9 +1436,14 @@ function renderStatus() {
       cacheStatusBarItem.hide();
       return;
     }
-    statusBarItem.text = '$(claude)$(dashboard) 0%';
+    // Nothing is running for this folder. Saying "0%" here read as a real
+    // measurement — an empty context window — when in fact there is nothing to
+    // measure, so the item says so in words instead.
+    statusBarItem.text = '$(claude)$(dashboard) no session';
     statusBarItem.color = undefined;
-    statusBarItem.tooltip = 'Fuel Gauge — No active Claude Code session';
+    statusBarItem.tooltip =
+      'No Claude Code session was found for this workspace. ' +
+      'Claude Code sessions are matched by the folder they were started in.';
     statusBarItem.command = undefined;
     statusBarItem.show();
     cacheStatusBarItem.hide();

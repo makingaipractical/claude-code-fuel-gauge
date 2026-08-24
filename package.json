@@ -2,7 +2,7 @@
   "name": "claude-code-fuel-gauge",
   "displayName": "Claude Code Fuel Gauge",
   "description": "Live context %, cache countdown, model·effort and usage limits for Claude Code — in your VS Code status bar.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
   "repository": {

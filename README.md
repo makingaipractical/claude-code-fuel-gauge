@@ -29,7 +29,7 @@ Fuel Gauge shows up to four items, right-aligned, and one shared hover tooltip t
 
 - **Active** — colored percentage (green/yellow/red based on your thresholds)
 - **Stale** — percentage with a circle-slash icon, no color (no update for over an hour — a genuinely abandoned session)
-- **No session** — 0%, no color
+- **No session** — `no session`, no color: nothing is running in the folder this window has open
 
 The percentage is exactly the one Claude Code reports. Run `/context` in a Claude Code session, or read Claude Code's own status line, and you will see the same figure Fuel Gauge is showing. It will not match the small pie in the VS Code prompt box, or the "Context low" message in the terminal, because those two measure how much room is left before Claude Code compacts your conversation automatically, and they measure it against a smaller window. They answer a different question, so their numbers differ. See [Known issues](#known-issues).
 
@@ -159,6 +159,12 @@ No API calls, no telemetry, no runtime dependencies. Everything runs locally on 
 This is a community tool. Not made by, endorsed by, or affiliated with Anthropic.
 
 ## Version History
+
+**v0.9.1** — Two fixes.
+
+**The cache countdown now reads your cache lifetime instead of guessing it.** Earlier versions worked out whether your plan uses a five-minute or a one-hour prompt cache by watching token counts: a cache that survived a long idle gap meant an hour, and a cache miss after a six-minute gap meant five minutes. The second rule was wrong. A cache miss after a short gap usually means something earlier in the conversation changed and invalidated the cache, not that the cache expired — and because the answer was saved for the whole account, one bad guess put every window on a five-minute countdown and showed `expired` beside sessions that were very much alive. Claude Code writes down which cache it asked for on every turn, so Fuel Gauge now reads that instead of inferring it. The reading is exact, it corrects itself on the next update, and there is nothing for you to change. `fuel-gauge.cacheTTL` still overrides it.
+
+**`no session` instead of `0%`.** When no Claude Code session belongs to the folder you have open, the gauge used to show `0%`, which looks like a real reading of an empty context window. It now says `no session`, and the hover explains that sessions are matched by the folder they were started in.
 
 **v0.9.0** — Two changes.
 
