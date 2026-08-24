@@ -107,8 +107,8 @@ if bd_dir and session_id:
     except Exception:
         pass
 
-# Account-level TTL persistence — once detection fires in any session,
-# future sessions inherit the TTL until a downgrade event proves it wrong
+# Account-level TTL persistence — a new session inherits the TTL the account
+# last used, so its countdown is right before its own first cache write lands
 account_ttl_file = os.path.join(bd_dir, 'account_ttl.json') if bd_dir else ''
 account_ttl = 0
 if account_ttl_file:
@@ -118,39 +118,97 @@ if account_ttl_file:
     except Exception:
         pass
 
-if prev_detected_ttl == 0 and account_ttl > 0:
-    prev_detected_ttl = account_ttl
+# Cache TTL, read from the transcript instead of guessed.
+# On every assistant turn Claude Code records which cache tier it asked the API
+# for: message.usage.cache_creation holds two counters, one for the 5-minute
+# tier and one for the 1-hour tier. Whichever is non-zero on the most recent
+# cache write is the TTL in force — a fact, not an inference. This replaces the
+# old rules that read the TTL out of the gap between two calls, which mistook an
+# ordinary cache invalidation for an expiry and then put every window on a
+# 5-minute countdown.
+def ttl_from_transcript(transcript_path):
+    if not transcript_path:
+        return 0
+    try:
+        size = os.path.getsize(transcript_path)
+    except Exception:
+        return 0
+    # Only the end of the file is read: transcripts run to many megabytes and
+    # the answer is always in the last few rows. The window widens twice, in
+    # case a single long row (a large tool result) fills the first slice.
+    for window in (65536, 262144, 1048576):
+        start = size - window
+        if start < 0:
+            start = 0
+        try:
+            with open(transcript_path, 'rb') as tf:
+                tf.seek(start)
+                chunk = tf.read()
+        except Exception:
+            return 0
+        lines = chunk.splitlines()
+        if start > 0 and lines:
+            # A seek into the middle of the file cuts the first row in half.
+            lines = lines[1:]
+        for line in reversed(lines):
+            if b'ephemeral_' not in line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if row.get('isSidechain'):
+                # A subagent's own cache, not this conversation's.
+                continue
+            msg = row.get('message')
+            usage = msg.get('usage') if isinstance(msg, dict) else None
+            tiers = usage.get('cache_creation') if isinstance(usage, dict) else None
+            if not isinstance(tiers, dict):
+                continue
+            if (tiers.get('ephemeral_1h_input_tokens') or 0) > 0:
+                return 3600
+            if (tiers.get('ephemeral_5m_input_tokens') or 0) > 0:
+                return 300
+        if start == 0:
+            break
+    return 0
 
 now = time.time()
 total_in_now = cw.get('total_input_tokens', 0) or 0
 api_call_happened = total_in_now > prev_total_in
 
+# The transcript first; if it has no cache write yet, what this session already
+# knew, then what the account last saw, then 0 for 'not known yet' (the
+# extension then shows its 5-minute default and labels it as such).
+detected_ttl = ttl_from_transcript(data.get('transcript_path', ''))
+if detected_ttl <= 0:
+    detected_ttl = prev_detected_ttl if prev_detected_ttl > 0 else account_ttl
+
+# When the last API call happened — the moment the countdown counts from.
 if not cu:
-    # /compact wiped current_usage — reset cache state
-    detected_ttl = 0
+    # /compact wiped current_usage: the context is new, so the cache clock
+    # starts again. The TTL belongs to the account, not to the context, so it
+    # is left alone.
     last_api_call_ts = 0
 elif api_call_happened:
-    gap = (now - prev_last_api_call_ts) if prev_last_api_call_ts > 0 else 0
     last_api_call_ts = now
-    detected_ttl = prev_detected_ttl
-    # Upgrade: cache survived past 5m → must be 1h TTL
-    if gap > 310 and cache_read > 0:
-        detected_ttl = 3600
-    # Downgrade: had 1h, but a 6–55m gap produced a cache miss
-    elif detected_ttl == 3600 and 360 < gap < 3300 and cache_read == 0 and cache_create > 0:
-        detected_ttl = 300
 else:
     last_api_call_ts = prev_last_api_call_ts
-    detected_ttl = prev_detected_ttl
 
-# Persist to account-level file when detection produced a different value
-# (covers both the first upgrade to 3600 and any subsequent downgrade)
+# Persist account-wide whenever the transcript disagrees with what was stored.
+# Written to a temp file first so two sessions updating at once cannot leave a
+# half-written file behind.
 if account_ttl_file and detected_ttl > 0 and detected_ttl != account_ttl:
+    tmp_account = account_ttl_file + '.' + str(os.getpid()) + '.tmp'
     try:
-        with open(account_ttl_file, 'w') as f:
+        with open(tmp_account, 'w') as f:
             json.dump({'detected_ttl': detected_ttl, 'detected_at': now}, f)
+        os.replace(tmp_account, account_ttl_file)
     except Exception:
-        pass
+        try:
+            os.unlink(tmp_account)
+        except Exception:
+            pass
 
 # Rate limit pass-through (defensive — each window may be independently
 # absent; -1 pct / 0 reset means 'not available', the extension hides it)

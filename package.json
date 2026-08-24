@@ -60,7 +60,7 @@
             "null"
           ],
           "default": null,
-          "description": "Prompt-cache TTL in seconds. Leave null to auto-detect from cache behavior. Common values: 300 (5 min, Pro/API), 3600 (1 hour, Max main agent)."
+          "description": "How long Claude Code's prompt cache lives, in seconds. Leave this empty and Fuel Gauge reads the answer from Claude Code itself: it records which cache it asked for on every turn. Set a number here only to override that \u2014 300 for five minutes, 3600 for one hour."
         },
         "fuel-gauge.cacheWarningSeconds": {
           "type": [

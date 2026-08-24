@@ -106,11 +106,12 @@ Everything Fuel Gauge touches:
 | `~/.claude/settings.json` | read, and **one key written with your consent** | sets `statusLine.command`. Every other setting and hook is preserved. |
 | `~/.claude/scripts/context-bridge.sh` | written every activation | the bridge itself. A hand-edited copy is saved to `.fuel-gauge.orig` first. |
 | `~/.claude/fuel-gauge/` | read and written | one small JSON file per session, plus the detected cache TTL. |
+| `~/.claude/projects/…` — Claude Code's own session transcripts | the end of the current session's file is read | it is the only place that says whether your plan's cache lasts 5 minutes or an hour. Only those two token counters are used. Nothing is written there. |
 | VS Code global storage | written | your previous status line command, so Restore always has something to give back. |
 
 Nothing else is read or written. No network calls.
 
-The cache countdown auto-detects your plan's TTL by watching whether the cache survives a >5-minute idle gap. Once detected, Fuel Gauge persists it to `~/.claude/fuel-gauge/account_ttl.json` so new sessions inherit it without re-detecting. If a later session sees the persisted value is wrong (a cache miss across a 6–55 minute gap), it corrects itself.
+The cache countdown gets your plan's cache lifetime from Claude Code itself. On every turn, Claude Code records in the session transcript which cache it asked for — the five-minute one or the one-hour one — and Fuel Gauge reads the end of that file to find the most recent entry. It saves the answer to `~/.claude/fuel-gauge/account_ttl.json`, so a new session's countdown is right from its first second. `fuel-gauge.cacheTTL` overrides it if you would rather fix the value yourself.
 
 ## Requirements
 

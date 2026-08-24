@@ -363,6 +363,164 @@ async function run(name, fn) {
     check('the clamp floor is 5s', delays.includes(5000), JSON.stringify(delays));
   });
 
+  // 15. CACHE TTL — read from the transcript, not guessed from the gap between calls.
+  //     Claude Code records the cache tier it asked for on every assistant turn;
+  //     the bridge reads the last one instead of inferring it from token counts.
+  await run('cache-ttl-from-transcript', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    // Stop the timers: this scenario drives the bridge by hand and writes
+    // session files the extension has no business reading while we do it.
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const sessionFile = (id) => path.join(fgDir, id + '.json');
+    const accountFile = path.join(fgDir, 'account_ttl.json');
+    // 0 means the bridge never wrote the file — a failure to report, not to crash on.
+    const accountTTL = () => {
+      try { return JSON.parse(fs.readFileSync(accountFile, 'utf-8')).detected_ttl; }
+      catch { return 0; }
+    };
+
+    // An assistant row shaped like the real thing, down to the two counters.
+    const assistantRow = (oneHourTokens, fiveMinTokens, extra = {}) => JSON.stringify({
+      type: 'assistant',
+      isSidechain: false,
+      message: {
+        role: 'assistant',
+        usage: {
+          input_tokens: 2,
+          cache_creation_input_tokens: oneHourTokens + fiveMinTokens,
+          cache_read_input_tokens: 149672,
+          output_tokens: 1661,
+          cache_creation: {
+            ephemeral_1h_input_tokens: oneHourTokens,
+            ephemeral_5m_input_tokens: fiveMinTokens,
+          },
+        },
+      },
+      ...extra,
+    });
+    const userRow = (text) => JSON.stringify({ type: 'user', message: { role: 'user', content: text } });
+
+    const writeTranscript = (name, rows) => {
+      const p = path.join(TMPROOT, name);
+      fs.writeFileSync(p, rows.join('\n') + '\n');
+      return p;
+    };
+
+    const payload = (id, transcript, windowOverrides = {}) => ({
+      session_id: id,
+      transcript_path: transcript,
+      cwd: '/w',
+      workspace: { project_dir: '/w' },
+      model: { id: 'claude-opus-5' },
+      effort: { level: 'high' },
+      rate_limits: { five_hour: { used_percentage: 12, resets_at: 1787600000 } },
+      context_window: {
+        context_window_size: 200000,
+        used_percentage: 31,
+        total_input_tokens: 1000,
+        current_usage: {
+          input_tokens: 2, output_tokens: 1661,
+          cache_creation_input_tokens: 137, cache_read_input_tokens: 149672,
+        },
+        ...windowOverrides,
+      },
+    });
+
+    const runBridge = (p) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify(p),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(sessionFile(p.session_id), 'utf-8'));
+    };
+
+    // (a) The transcript's last cache write went to the 1-hour tier.
+    const oneHourTranscript = writeTranscript('one-hour.jsonl', [
+      userRow('hello'), assistantRow(137, 0),
+    ]);
+    const oneHour = runBridge(payload('ttl-1h', oneHourTranscript));
+    check('1-hour cache write in the transcript gives a 3600s TTL',
+      oneHour.detected_ttl === 3600, String(oneHour.detected_ttl));
+    check('account TTL file records 3600', accountTTL() === 3600, String(accountTTL()));
+
+    // (b) A session whose transcript has no cache write yet keeps the account value.
+    const bareTranscript = writeTranscript('no-cache-yet.jsonl', [userRow('first turn')]);
+    const inherited = runBridge(payload('ttl-inherit', bareTranscript));
+    check('a session with no cache write yet inherits the account TTL',
+      inherited.detected_ttl === 3600, String(inherited.detected_ttl));
+
+    // (c) The bug this replaces. A 7-minute gap that ends in a cache miss used
+    //     to be read as proof of a 5-minute TTL and written account-wide, which
+    //     put every window on a 5-minute countdown and showed "expired" on live
+    //     sessions. It is an ordinary cache invalidation, and the transcript
+    //     still says the 1-hour tier. Pre-fix this scenario returns 300.
+    const then = (Date.now() / 1000) - 420;
+    fs.writeFileSync(sessionFile('ttl-no-false-downgrade'), JSON.stringify({
+      session_id: 'ttl-no-false-downgrade',
+      total_input_tokens: 1000,
+      detected_ttl: 3600,
+      last_api_call_ts: then,
+      timestamp: then,
+    }, null, 2));
+    const noFalseDowngrade = runBridge(payload('ttl-no-false-downgrade', oneHourTranscript, {
+      total_input_tokens: 2000,
+      current_usage: {
+        input_tokens: 2, output_tokens: 100,
+        cache_creation_input_tokens: 75220, cache_read_input_tokens: 0,
+      },
+    }));
+    check('a 7-minute gap ending in a cache miss no longer downgrades the TTL',
+      noFalseDowngrade.detected_ttl === 3600, String(noFalseDowngrade.detected_ttl));
+    check('the account TTL was not rewritten to 300', accountTTL() === 3600, String(accountTTL()));
+
+    // (d) A real 5-minute tier is reported as 5 minutes, and the account follows.
+    const fiveMinTranscript = writeTranscript('five-min.jsonl', [
+      userRow('hello'), assistantRow(0, 1429),
+    ]);
+    const fiveMin = runBridge(payload('ttl-5m', fiveMinTranscript));
+    check('5-minute cache write in the transcript gives a 300s TTL',
+      fiveMin.detected_ttl === 300, String(fiveMin.detected_ttl));
+    check('account TTL file follows the transcript down to 300',
+      accountTTL() === 300, String(accountTTL()));
+
+    // (e) A subagent's cache write is not this conversation's TTL.
+    const sidechainTranscript = writeTranscript('sidechain.jsonl', [
+      userRow('hello'), assistantRow(137, 0), assistantRow(0, 900, { isSidechain: true }),
+    ]);
+    const sidechain = runBridge(payload('ttl-sidechain', sidechainTranscript));
+    check('a subagent row is skipped, the main conversation decides the TTL',
+      sidechain.detected_ttl === 3600, String(sidechain.detected_ttl));
+
+    // (f) A transcript that is not there falls back instead of failing.
+    const missing = runBridge(payload('ttl-missing', path.join(TMPROOT, 'gone.jsonl')));
+    check('a missing transcript falls back to the account TTL',
+      missing.detected_ttl === 3600, String(missing.detected_ttl));
+
+    // (g) The answer must still be found when the last rows are very long.
+    const bigRow = JSON.stringify({
+      type: 'user', message: { role: 'user', content: 'x'.repeat(200000) },
+    });
+    const longTailTranscript = writeTranscript('long-tail.jsonl', [
+      assistantRow(0, 512), bigRow,
+    ]);
+    const longTail = runBridge(payload('ttl-long-tail', longTailTranscript));
+    check('a 200 KB row at the end does not hide the cache write behind it',
+      longTail.detected_ttl === 300, String(longTail.detected_ttl));
+
+    check('no temp files left behind in the fuel-gauge directory',
+      fs.readdirSync(fgDir).every((f) => !f.endsWith('.tmp')),
+      fs.readdirSync(fgDir).join(', '));
+    check('the bridge logged no errors',
+      !fs.existsSync(path.join(fgDir, 'bridge.log')) ||
+      fs.readFileSync(path.join(fgDir, 'bridge.log'), 'utf-8').trim() === '',
+      fs.existsSync(path.join(fgDir, 'bridge.log'))
+        ? fs.readFileSync(path.join(fgDir, 'bridge.log'), 'utf-8') : '');
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
