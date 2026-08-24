@@ -968,6 +968,44 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 23. A HAND-EDITED config.json MUST NOT KILL THE BRIDGE.
+  //     systemOverhead is deprecated, so someone clearing it to null is exactly
+  //     the shape to expect — and it used to reach an arithmetic operation and
+  //     stop the gauge writing anything at all.
+  await run('config-null-overhead', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.writeFileSync(path.join(fgDir, 'config.json'),
+      JSON.stringify({ systemOverhead: null }, null, 2));
+
+    // No used_percentage in the payload, so the bridge takes the fallback path
+    // where the overhead is actually subtracted.
+    let threw = null;
+    try {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify({
+          session_id: 'null-overhead', cwd: '/w', workspace: { project_dir: '/w' },
+          context_window: {
+            context_window_size: 200000, total_input_tokens: 100000,
+            current_usage: { input_tokens: 40000, output_tokens: 0,
+              cache_creation_input_tokens: 10000, cache_read_input_tokens: 50000 },
+          },
+        }),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+    } catch (e) { threw = e; }
+    const f = path.join(fgDir, 'null-overhead.json');
+    check('the bridge survives a null systemOverhead', threw === null, threw && threw.message);
+    check('and still writes the session file', fs.existsSync(f));
+    check('treating null as no overhead at all',
+      fs.existsSync(f) && JSON.parse(fs.readFileSync(f, 'utf-8')).used_percentage === 50,
+      fs.existsSync(f) ? String(JSON.parse(fs.readFileSync(f, 'utf-8')).used_percentage) : 'no file');
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

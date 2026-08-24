@@ -64,6 +64,11 @@ try:
         overhead = cfg.get('systemOverhead', 0)
 except Exception:
     pass
+# A setting someone typed by hand can be anything at all. An explicit null used
+# to reach the subtraction below and kill the bridge, so no session file was
+# written and the gauge quietly stopped updating.
+if isinstance(overhead, bool) or not isinstance(overhead, (int, float)):
+    overhead = 0
 
 # Claude Code already computes the context percentage and puts it in the payload as
 # used_percentage: round((input + cache_creation + cache_read) / context_window_size * 100).
