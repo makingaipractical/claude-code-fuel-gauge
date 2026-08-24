@@ -523,6 +523,20 @@ async function run(name, fn) {
     check('a 200 KB row at the end does not hide the cache write behind it',
       longTail.detected_ttl === 300, String(longTail.detected_ttl));
 
+    // (h) The documented ceiling: one row larger than the widest slice (1 MB)
+    //     fills every window, so there is no answer to be had from the
+    //     transcript. It must fall back quietly, never crash — the countdown
+    //     then rests on the inherited value and the caller's fallback rule.
+    const hugeRow = JSON.stringify({
+      type: 'user', message: { role: 'user', content: 'x'.repeat(1200000) },
+    });
+    const hugeTailTranscript = writeTranscript('huge-tail.jsonl', [
+      assistantRow(137, 0), hugeRow,
+    ]);
+    const hugeTail = runBridge(payload('ttl-huge-tail', hugeTailTranscript));
+    check('a row bigger than 1 MB falls back instead of crashing',
+      hugeTail.detected_ttl === accountTTL(), String(hugeTail.detected_ttl));
+
     check('no temp files left behind in the fuel-gauge directory',
       fs.readdirSync(fgDir).every((f) => !f.endsWith('.tmp')),
       fs.readdirSync(fgDir).join(', '));
@@ -554,6 +568,201 @@ async function run(name, fn) {
     check('still reads "no session" after a re-render',
       context().text === '$(claude)$(dashboard) no session', context().text);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 17. A TRANSCRIPT LINE OF THE WRONG SHAPE MUST NOT STOP THE GAUGE.
+  //     Valid JSON that is not a row — an array, a bare string — used to raise
+  //     out of the whole bridge, so no session file was written at all and the
+  //     status bar went on showing frozen numbers with nothing to say why.
+  await run('transcript-bad-rows', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const goodRow = JSON.stringify({
+      type: 'assistant',
+      timestamp: new Date().toISOString(),
+      message: { role: 'assistant', usage: {
+        cache_creation: { ephemeral_1h_input_tokens: 137, ephemeral_5m_input_tokens: 0 } } },
+    });
+    // Every one of these is valid JSON, contains the marker the scan looks for,
+    // and is not an object.
+    const badRows = [
+      '["ephemeral_1h_input_tokens", 5]',
+      '"ephemeral_5m_input_tokens"',
+      '12345',
+      'null',
+      '{"message": "ephemeral_1h_input_tokens is a string here, not usage"}',
+    ];
+
+    // A bridge that dies leaves no session file and a non-zero exit. Both are
+    // failures to report, not reasons to abandon the run.
+    const runBridge = (id, rows) => {
+      const tp = path.join(TMPROOT, id + '.jsonl');
+      fs.writeFileSync(tp, rows.join('\n') + '\n');
+      try {
+        execFileSync('bash', [bridgePath()], {
+          input: JSON.stringify({
+            session_id: id, transcript_path: tp, cwd: '/w',
+            workspace: { project_dir: '/w' },
+            context_window: {
+              context_window_size: 200000, used_percentage: 31, total_input_tokens: 1000,
+              current_usage: { input_tokens: 2, output_tokens: 10,
+                cache_creation_input_tokens: 137, cache_read_input_tokens: 149672 },
+            },
+          }),
+          env: { ...process.env, HOME: TMPROOT },
+        });
+      } catch { /* reported by the checks below */ }
+      const f = path.join(fgDir, id + '.json');
+      return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf-8')) : null;
+    };
+
+    // Nothing usable at all: unknown is an acceptable answer, a dead gauge is
+    // not. This runs first, while nothing has been stored for the account yet,
+    // so 0 here really means "found no answer" and not "inherited one".
+    const onlyBad = runBridge('only-bad', badRows);
+    check('a transcript with no usable row still writes a session file', onlyBad !== null);
+    check('and reports the lifetime as unknown, not as a crash',
+      onlyBad && onlyBad.detected_ttl === 0, onlyBad && String(onlyBad.detected_ttl));
+    check('the percentage is still reported while the lifetime is unknown',
+      onlyBad && onlyBad.used_percentage === 31, onlyBad && String(onlyBad.used_percentage));
+
+    // Bad rows sit after the good one, so the backwards scan meets them first.
+    const survived = runBridge('bad-then-good', [goodRow, ...badRows]);
+    check('the session file is still written when rows are the wrong shape',
+      survived !== null);
+    check('the good row underneath is still found', survived && survived.detected_ttl === 3600,
+      survived && String(survived.detected_ttl));
+
+    const log = path.join(fgDir, 'bridge.log');
+    check('nothing was logged as an error',
+      !fs.existsSync(log) || fs.readFileSync(log, 'utf-8').trim() === '',
+      fs.existsSync(log) ? fs.readFileSync(log, 'utf-8') : '');
+  });
+
+  // 18. NO ANSWER IN THE TRANSCRIPT -> the one thing token counts can prove.
+  //     A cache that survived more than five minutes cannot be on the
+  //     five-minute tier. Without this, an older Claude Code that sends no
+  //     transcript_path shows a red "expired" 55 minutes early.
+  await run('ttl-fallback-without-transcript', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const sessionFile = path.join(fgDir, 'no-transcript.json');
+    const accountFile = path.join(fgDir, 'account_ttl.json');
+
+    // Note: no transcript_path anywhere in this payload.
+    const call = (totalIn, cacheRead) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify({
+          session_id: 'no-transcript', cwd: '/w', workspace: { project_dir: '/w' },
+          context_window: {
+            context_window_size: 200000, used_percentage: 31,
+            total_input_tokens: totalIn,
+            current_usage: { input_tokens: 2, output_tokens: 10,
+              cache_creation_input_tokens: 137, cache_read_input_tokens: cacheRead },
+          },
+        }),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+    };
+
+    const first = call(1000, 149672);
+    check('with no transcript the lifetime starts out unknown', first.detected_ttl === 0,
+      String(first.detected_ttl));
+
+    // Six and a half minutes later, and the cache is still warm.
+    const patched = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+    patched.last_api_call_ts = (Date.now() / 1000) - 400;
+    fs.writeFileSync(sessionFile, JSON.stringify(patched, null, 2));
+
+    const second = call(2000, 149672);
+    check('a cache that survived 6 minutes proves the 1-hour tier',
+      second.detected_ttl === 3600, String(second.detected_ttl));
+    check('and that is recorded for the account',
+      fs.existsSync(accountFile) &&
+      JSON.parse(fs.readFileSync(accountFile, 'utf-8')).detected_ttl === 3600);
+
+    // The rule that broke things is NOT back: a miss after a short gap must
+    // never be read as an expiry.
+    const patched2 = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+    patched2.last_api_call_ts = (Date.now() / 1000) - 420;
+    fs.writeFileSync(sessionFile, JSON.stringify(patched2, null, 2));
+    const third = call(3000, 0);
+    check('a cache miss after 7 minutes does not downgrade anything',
+      third.detected_ttl === 3600, String(third.detected_ttl));
+  });
+
+  // 19. AN OLD SESSION MUST NOT SPEAK FOR THE ACCOUNT.
+  //     Resuming a months-old session whose last cache write was on the
+  //     5-minute tier used to overwrite account_ttl.json, which then handed
+  //     every brand-new session a 5-minute countdown.
+  await run('account-ttl-only-newer-wins', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const accountFile = path.join(fgDir, 'account_ttl.json');
+    const account = () => JSON.parse(fs.readFileSync(accountFile, 'utf-8'));
+
+    const cacheRow = (oneHour, fiveMin, iso) => JSON.stringify({
+      type: 'assistant', timestamp: iso,
+      message: { role: 'assistant', usage: {
+        cache_creation: { ephemeral_1h_input_tokens: oneHour, ephemeral_5m_input_tokens: fiveMin } } },
+    });
+
+    const runBridge = (id, rows) => {
+      const tp = path.join(TMPROOT, id + '.jsonl');
+      fs.writeFileSync(tp, rows.join('\n') + '\n');
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify({
+          session_id: id, transcript_path: tp, cwd: '/w', workspace: { project_dir: '/w' },
+          context_window: {
+            context_window_size: 200000, used_percentage: 31, total_input_tokens: 1000,
+            current_usage: { input_tokens: 2, output_tokens: 10,
+              cache_creation_input_tokens: 137, cache_read_input_tokens: 149672 },
+          },
+        }),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(path.join(fgDir, id + '.json'), 'utf-8'));
+    };
+
+    const nowIso = new Date().toISOString();
+    const oldIso = '2026-07-28T14:14:00.420Z';
+
+    const live = runBridge('live-1h', [cacheRow(137, 0, nowIso)]);
+    check('a live session sets the account to 1 hour', live.detected_ttl === 3600);
+    const afterLive = account().detected_at;
+    check('the account records when that row was written, not when we read it',
+      Math.abs(afterLive - Date.parse(nowIso) / 1000) < 2, String(afterLive));
+
+    const resumed = runBridge('resumed-5m', [cacheRow(0, 1429, oldIso)]);
+    check('the resumed old session still reads its own transcript correctly',
+      resumed.detected_ttl === 300, String(resumed.detected_ttl));
+    check('but it does not get to overwrite the account', account().detected_ttl === 3600,
+      String(account().detected_ttl));
+    check('and the stored timestamp is untouched', account().detected_at === afterLive);
+
+    // A brand-new session with no cache write of its own inherits the good value.
+    const fresh = runBridge('fresh', [JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } })]);
+    check('a new session inherits 1 hour, not the old session 5 minutes',
+      fresh.detected_ttl === 3600, String(fresh.detected_ttl));
+
+    // Running the old session twice more must not start a tug of war.
+    runBridge('resumed-5m', [cacheRow(0, 1429, oldIso)]);
+    runBridge('resumed-5m', [cacheRow(0, 1429, oldIso)]);
+    check('repeated updates from the old session change nothing',
+      account().detected_ttl === 3600 && account().detected_at === afterLive);
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

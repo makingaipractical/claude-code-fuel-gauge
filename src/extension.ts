@@ -44,7 +44,7 @@ if [ -z "$session_id" ]; then
 fi
 
 echo "$input" | BD_SESSION_ID="$session_id" BD_DIR="$BD_DIR" python3 -c "
-import sys, json, time, os
+import sys, json, time, os, calendar
 
 data = json.load(sys.stdin)
 cw = data.get('context_window', {})
@@ -111,10 +111,13 @@ if bd_dir and session_id:
 # last used, so its countdown is right before its own first cache write lands
 account_ttl_file = os.path.join(bd_dir, 'account_ttl.json') if bd_dir else ''
 account_ttl = 0
+account_detected_at = 0
 if account_ttl_file:
     try:
         with open(account_ttl_file) as f:
-            account_ttl = json.load(f).get('detected_ttl', 0) or 0
+            stored = json.load(f)
+            account_ttl = stored.get('detected_ttl', 0) or 0
+            account_detected_at = stored.get('detected_at', 0) or 0
     except Exception:
         pass
 
@@ -126,16 +129,33 @@ if account_ttl_file:
 # old rules that read the TTL out of the gap between two calls, which mistook an
 # ordinary cache invalidation for an expiry and then put every window on a
 # 5-minute countdown.
-def ttl_from_transcript(transcript_path):
-    if not transcript_path:
+def row_time(row):
+    # '2026-07-28T14:14:00.420Z' (always UTC) -> epoch seconds. Anything else,
+    # including a row with no timestamp at all, reads as 0 = 'no idea when'.
+    try:
+        stamp = row.get('timestamp')
+        d, sep, t = stamp.partition('T')
+        y, mo, da = [int(x) for x in d.split('-')]
+        h, mi, s = [int(x) for x in t[:8].split(':')]
+        return calendar.timegm((y, mo, da, h, mi, s, 0, 0, 0))
+    except Exception:
         return 0
+
+def ttl_from_transcript(transcript_path):
+    # Returns (ttl_seconds, when_that_row_was_written). 0, 0 means no answer.
+    if not transcript_path:
+        return 0, 0
     try:
         size = os.path.getsize(transcript_path)
     except Exception:
-        return 0
+        return 0, 0
     # Only the end of the file is read: transcripts run to many megabytes and
     # the answer is always in the last few rows. The window widens twice, in
     # case a single long row (a large tool result) fills the first slice.
+    # Known limit: one row bigger than 1 MB fills even the widest slice, and
+    # then there is no answer to be had here. Widening past that would mean an
+    # unbounded read on every status line update, so it stops and the caller's
+    # fallback takes over.
     for window in (65536, 262144, 1048576):
         start = size - window
         if start < 0:
@@ -145,7 +165,7 @@ def ttl_from_transcript(transcript_path):
                 tf.seek(start)
                 chunk = tf.read()
         except Exception:
-            return 0
+            return 0, 0
         lines = chunk.splitlines()
         if start > 0 and lines:
             # A seek into the middle of the file cuts the first row in half.
@@ -157,6 +177,9 @@ def ttl_from_transcript(transcript_path):
                 row = json.loads(line)
             except Exception:
                 continue
+            if not isinstance(row, dict):
+                # Valid JSON, but not a row: an array, a string, a number.
+                continue
             if row.get('isSidechain'):
                 # A subagent's own cache, not this conversation's.
                 continue
@@ -166,23 +189,47 @@ def ttl_from_transcript(transcript_path):
             if not isinstance(tiers, dict):
                 continue
             if (tiers.get('ephemeral_1h_input_tokens') or 0) > 0:
-                return 3600
+                return 3600, row_time(row)
             if (tiers.get('ephemeral_5m_input_tokens') or 0) > 0:
-                return 300
+                return 300, row_time(row)
         if start == 0:
             break
-    return 0
+    return 0, 0
 
 now = time.time()
 total_in_now = cw.get('total_input_tokens', 0) or 0
 api_call_happened = total_in_now > prev_total_in
+gap = (now - prev_last_api_call_ts) if prev_last_api_call_ts > 0 else 0
 
-# The transcript first; if it has no cache write yet, what this session already
-# knew, then what the account last saw, then 0 for 'not known yet' (the
-# extension then shows its 5-minute default and labels it as such).
-detected_ttl = ttl_from_transcript(data.get('transcript_path', ''))
-if detected_ttl <= 0:
-    detected_ttl = prev_detected_ttl if prev_detected_ttl > 0 else account_ttl
+# Nothing about reading someone else's file may stop the gauge. Whatever shape
+# a future transcript takes, the worst it can do here is leave the TTL unknown,
+# and everything below knows what to do with that.
+try:
+    transcript_ttl, transcript_time = ttl_from_transcript(data.get('transcript_path', ''))
+except Exception:
+    transcript_ttl, transcript_time = 0, 0
+
+# The transcript is the answer whenever it has one. detection_time stays 0
+# unless this update actually observed something, because only a real
+# observation is allowed to speak for the whole account further down.
+detection_time = 0
+if transcript_ttl > 0:
+    detected_ttl = transcript_ttl
+    detection_time = transcript_time or now
+elif api_call_happened and gap > 310 and cache_read > 0:
+    # No answer in the transcript — an old Claude Code that sends no
+    # transcript_path, a file we cannot read, a row too big to scan past. Fall
+    # back to the one thing token counts can prove: a cache that survived more
+    # than five minutes cannot be on the five-minute tier. The opposite rule is
+    # deliberately not here. A cache miss after a short gap usually means the
+    # conversation changed, not that the cache expired, and reading it as an
+    # expiry is the bug this release exists to fix.
+    detected_ttl = 3600
+    detection_time = now
+elif prev_detected_ttl > 0:
+    detected_ttl = prev_detected_ttl
+else:
+    detected_ttl = account_ttl
 
 # When the last API call happened — the moment the countdown counts from.
 if not cu:
@@ -195,14 +242,18 @@ elif api_call_happened:
 else:
     last_api_call_ts = prev_last_api_call_ts
 
-# Persist account-wide whenever the transcript disagrees with what was stored.
+# Persist account-wide, but only an observation that is newer than the one
+# already stored. Without that test, opening a months-old session would let its
+# last cache write speak for the account and put every new session on the wrong
+# countdown — the same symptom this release fixes, through a different door.
 # Written to a temp file first so two sessions updating at once cannot leave a
 # half-written file behind.
-if account_ttl_file and detected_ttl > 0 and detected_ttl != account_ttl:
+if (account_ttl_file and detected_ttl > 0 and detection_time > 0
+        and detected_ttl != account_ttl and detection_time >= account_detected_at):
     tmp_account = account_ttl_file + '.' + str(os.getpid()) + '.tmp'
     try:
         with open(tmp_account, 'w') as f:
-            json.dump({'detected_ttl': detected_ttl, 'detected_at': now}, f)
+            json.dump({'detected_ttl': detected_ttl, 'detected_at': detection_time}, f)
         os.replace(tmp_account, account_ttl_file)
     except Exception:
         try:
