@@ -30,7 +30,7 @@ Fuel Gauge shows up to four items, right-aligned, and one shared hover tooltip t
 - **Active** — colored percentage (green/yellow/red based on your thresholds)
 - **Stale** — percentage with a circle-slash icon, no color (no update for over an hour — a genuinely abandoned session)
 - **Reading paused** — `~42%`, no color: right after `/compact` Claude Code reports an empty context window until your next turn, so the gauge holds the last number it had and marks it with a tilde rather than dropping to a green 0%
-- **No session** — `no session`, no color: nothing is running in the folder this window has open
+- **No session** — the gauge is hidden. It appears when a Claude Code session starts in the folder this window has open
 
 The percentage is exactly the one Claude Code reports. Run `/context` in a Claude Code session, or read Claude Code's own status line, and you will see the same figure Fuel Gauge is showing. It will not match the small pie in the VS Code prompt box, or the "Context low" message in the terminal, because those two measure how much room is left before Claude Code compacts your conversation automatically, and they measure it against a smaller window. They answer a different question, so their numbers differ. See [Known issues](#known-issues).
 
@@ -175,7 +175,7 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 
 **Each item can now be hidden on its own.** The four items are named in VS Code's status bar right-click menu — Fuel Gauge: context, cache countdown, model and effort, usage alert — so you can switch off the ones you do not want and VS Code remembers.
 
-**`no session` instead of `0%`.** When no Claude Code session belongs to the folder you have open, the gauge used to show `0%`, which looks like a real reading of an empty context window. It now says `no session`, and the hover explains that sessions are matched by the folder they were started in.
+**The gauge hides itself when there is nothing to measure.** When no Claude Code session belongs to the folder you have open, earlier versions showed `0%` — which reads as a real measurement of an empty context window, when in fact there is nothing to measure. All four items now disappear instead, and come back on their own when a session starts in that folder. If a window is empty and you expected it not to be, run **Fuel Gauge: Show Diagnostics**: it names the folder the window has open and says whether any session matches it. Claude Code sessions are matched by the folder they were started in, which is the usual reason.
 
 **v0.9.0** — Two changes.
 

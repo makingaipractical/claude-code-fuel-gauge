@@ -10,7 +10,7 @@ const { execFileSync } = require('child_process');
 const EXT_DIR = path.resolve(__dirname, '..');
 const OUT = path.join(EXT_DIR, 'out', 'extension.js');
 
-let TMPROOT, answers, messages, settingsPath, globalStorage, configStore, bars;
+let TMPROOT, answers, messages, settingsPath, globalStorage, configStore, bars, configListeners, outputLines;
 
 function makeVscode() {
   const cfg = {
@@ -39,7 +39,11 @@ function makeVscode() {
   return {
     window: {
       createStatusBarItem: bar,
-      createOutputChannel: () => ({ clear() {}, appendLine() {}, show() {}, dispose() {} }),
+      createOutputChannel: () => ({
+        clear() { outputLines.length = 0; },
+        appendLine(l) { outputLines.push(l); },
+        show() {}, dispose() {},
+      }),
       showInformationMessage: async (m, ...rest) => { messages.push(['info', m]); return answers.shift(); },
       showWarningMessage: async (m, ...rest) => { messages.push(['warn', m]); return answers.shift(); },
       showErrorMessage: async (m, ...rest) => { messages.push(['error', m]); return answers.shift(); },
@@ -52,7 +56,7 @@ function makeVscode() {
     },
     workspace: {
       getConfiguration: () => cfg,
-      onDidChangeConfiguration: () => ({ dispose() {} }),
+      onDidChangeConfiguration: (fn) => { configListeners.push(fn); return { dispose() {} }; },
       workspaceFolders: [],
       fs: {},
     },
@@ -102,6 +106,8 @@ function freshSandbox(name) {
   registered = {};
   configStore = {};
   bars = [];
+  configListeners = [];
+  outputLines = [];
   global.__vscode = makeVscode();
   delete require.cache[OUT];
 }
@@ -120,6 +126,11 @@ const readSettings = () => JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
 // The four status bar items, by the priority the extension gives them:
 // 100 context, 99 cache countdown, 98 model/effort, 97 usage alert.
 const barAt = (priority) => bars.find((b) => b.priority === priority);
+// Fires VS Code's configuration-change event, which is the extension's own cue
+// to re-read the session directory straight away. Saves a scenario waiting out
+// the poll interval to see a change take effect.
+const fireConfigChange = () =>
+  configListeners.forEach((fn) => fn({ affectsConfiguration: () => true }));
 
 let pass = 0, fail = 0;
 function check(label, cond, detail) {
@@ -565,26 +576,76 @@ async function run(name, fn) {
         ? fs.readFileSync(path.join(fgDir, 'bridge.log'), 'utf-8') : '');
   });
 
-  // 16. NO SESSION FOR THIS WINDOW -> say so, don't paint a measured-looking 0%.
-  await run('no-session-label', async (ext) => {
+  // 16. NO SESSION FOR THIS WINDOW -> show nothing at all.
+  //     Not 0% (which read as a measurement of an empty window) and not a
+  //     "no session" label either: that was honest, but it sat in every window
+  //     not running Claude, forever.
+  await run('no-session-hidden', async (ext) => {
     fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
     ext.activate(ctx());
 
-    const context = () => barAt(100);
-    check('context item says there is no session, not 0%',
-      context().text === '$(claude)$(dashboard) no session', context().text);
-    check('tooltip explains that sessions match on their folder',
-      /matched by the folder they were started in/.test(String(context().tooltip)),
-      String(context().tooltip));
-    check('no colour on the no-session item', context().color === undefined);
-    check('cache countdown hidden', barAt(99).visible === false);
-    check('model/effort item hidden', barAt(98).visible === false);
-    check('usage alert hidden', barAt(97).visible === false);
+    const allFour = () => [barAt(100), barAt(99), barAt(98), barAt(97)];
+    check('all four items are hidden', allFour().every((b) => b.visible === false),
+      JSON.stringify(allFour().map((b) => b.visible)));
+    check('the context item shows no leftover text', barAt(100).text === '',
+      barAt(100).text);
 
-    // Still true one render later, once the status line setup has settled.
+    // Still true a render later, once the status line setup has settled.
     await new Promise((r) => setTimeout(r, 1150));
-    check('still reads "no session" after a re-render',
-      context().text === '$(claude)$(dashboard) no session', context().text);
+    check('still hidden after a re-render', allFour().every((b) => b.visible === false),
+      JSON.stringify(allFour().map((b) => b.visible)));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 16b. AND IT COMES BACK. A window that was empty when it opened must pick up
+  //      a session that starts later, or hiding the gauge would mean losing it.
+  await run('no-session-then-session', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+
+    check('nothing is shown while no session matches this folder',
+      [barAt(100), barAt(99), barAt(98), barAt(97)].every((b) => b.visible === false));
+
+    // With nothing in the status bar, Diagnostics is the only thing that can
+    // explain the empty window, so it has to name the folder and say plainly
+    // that no session matches it.
+    await registered['fuel-gauge.showBridgeStatus']();
+    const report = outputLines.join('\n');
+    check('Show Diagnostics still runs', outputLines.length > 0);
+    check('Diagnostics names the folder this window has open', report.includes(ws), report);
+    check('Diagnostics says no session matches it, and why',
+      /Session for this workspace\s+NONE/.test(report) &&
+      report.includes('matched by the folder they were started in'), report);
+
+    // Claude Code starts in this folder and the bridge writes its first file.
+    const nowSec = Date.now() / 1000;
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'arrived.json'), JSON.stringify({
+      cwd: ws, project_dir: ws, used_percentage: 31, remaining_percentage: 69,
+      total_input_tokens: 62000, total_output_tokens: 900,
+      context_window_size: 200000, model: 'claude-opus-5', session_id: 'arrived',
+      timestamp: nowSec, detected_ttl: 3600, last_api_call_ts: nowSec - 60,
+      rate_limit_5h_pct: -1, rate_limit_7d_pct: -1, effort_level: 'high',
+      context_unknown: false,
+    }, null, 2));
+
+    fireConfigChange();
+
+    check('the gauge comes back on its own', barAt(100).visible === true);
+    check('and shows the new session percentage',
+      barAt(100).text === '$(claude)$(dashboard) 31%', barAt(100).text);
+    check('the cache countdown comes back too', barAt(99).visible === true);
+    check('so does the model and effort item', barAt(98).visible === true);
+
+    outputLines.length = 0;
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('Diagnostics now names the matching session file',
+      /Session for this workspace\s+arrived\.json/.test(outputLines.join('\n')),
+      outputLines.join('\n'));
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 

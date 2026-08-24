@@ -1044,6 +1044,27 @@ function showBridgeStatus() {
       add('Newest session file', 'none — no session has written yet');
     }
     add('Session files', String(files.length));
+
+    // With the status bar items hidden when nothing matches, this is the only
+    // place that answers "why is my gauge not there?".
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      add('This workspace', 'no folder is open, so no session can be matched to it');
+    } else {
+      add('This workspace', workspaceRoot);
+      let matched: string | undefined;
+      for (const { f } of files) {
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as ContextStatus;
+          if (matchesWorkspace(d, workspaceRoot)) { matched = f; break; }
+        } catch {
+          // Unreadable or half-written — not this report's problem.
+        }
+      }
+      add('Session for this workspace', matched ?? 'NONE — the gauge is hidden in this window. ' +
+        'Claude Code sessions are matched by the folder they were started in, so a session ' +
+        'started in a different folder will not appear here.');
+    }
   } catch {
     add('Session directory', 'MISSING');
   }
@@ -1526,17 +1547,17 @@ function renderStatus() {
       cacheStatusBarItem.hide();
       return;
     }
-    // Nothing is running for this folder. Saying "0%" here read as a real
-    // measurement — an empty context window — when in fact there is nothing to
-    // measure, so the item says so in words instead.
-    statusBarItem.text = '$(claude)$(dashboard) no session';
-    statusBarItem.color = undefined;
-    statusBarItem.tooltip =
-      'No Claude Code session was found for this workspace. ' +
-      'Claude Code sessions are matched by the folder they were started in.';
-    statusBarItem.command = undefined;
-    statusBarItem.show();
+    // Nothing is running for this folder, so there is nothing to report and the
+    // gauge gets out of the way. It used to say "0%", which read as a real
+    // measurement of an empty context window; a "no session" label was honest
+    // but sat in every window that is not running Claude, forever. The gauge
+    // comes back on its own as soon as a session writes for this folder.
+    // Why a window shows nothing is a question for Fuel Gauge: Show
+    // Diagnostics, which names the folder and says whether a session matches it.
+    statusBarItem.hide();
     cacheStatusBarItem.hide();
+    effortStatusBarItem.hide();
+    usageStatusBarItem.hide();
     return;
   }
 
