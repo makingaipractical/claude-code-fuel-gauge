@@ -55,6 +55,17 @@ function makeVscode() {
     StatusBarAlignment: { Right: 2, Left: 1 },
     ConfigurationTarget: { Global: 1, Workspace: 2 },
     ThemeColor: class { constructor(id) { this.id = id; } },
+    // Without this the tooltip builder throws, updateStatus' catch swallows it,
+    // and no scenario can ever render a live session.
+    MarkdownString: class {
+      constructor(value, supportThemeIcons) {
+        this.value = value || '';
+        this.supportThemeIcons = supportThemeIcons;
+        this.supportHtml = false;
+      }
+      appendMarkdown(s) { this.value += s; return this; }
+      toString() { return this.value; }
+    },
     EventEmitter: class { constructor() { this.event = () => ({ dispose() {} }); } fire() {} dispose() {} },
   };
 }
@@ -763,6 +774,70 @@ async function run(name, fn) {
     runBridge('resumed-5m', [cacheRow(0, 1429, oldIso)]);
     check('repeated updates from the old session change nothing',
       account().detected_ttl === 3600 && account().detected_at === afterLive);
+  });
+
+  // 20. A LIVE SESSION, RENDERED. Nothing had ever exercised this path: the
+  //     fake vscode module had no MarkdownString, so the tooltip builder threw
+  //     and updateStatus' catch hid the failure.
+  await run('live-session-render', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+
+    const nowSec = Date.now() / 1000;
+    const lastCall = nowSec - 60;
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'live.json'), JSON.stringify({
+      cwd: ws, project_dir: ws,
+      used_percentage: 31.163645621181264, remaining_percentage: 68.83,
+      total_input_tokens: 306027, total_output_tokens: 2693,
+      context_window_size: 1000000, model: 'claude-opus-5', session_id: 'live',
+      timestamp: nowSec,
+      cache_read_input_tokens: 149672, cache_creation_input_tokens: 137,
+      detected_ttl: 3600, last_api_call_ts: lastCall,
+      rate_limit_5h_pct: 12, rate_limit_5h_reset: nowSec + 7200,
+      rate_limit_7d_pct: 44, rate_limit_7d_reset: nowSec + 200000,
+      effort_level: 'high',
+    }, null, 2));
+
+    ext.activate(ctx());
+
+    const context = barAt(100), cache = barAt(99), effort = barAt(98), usage = barAt(97);
+    check('context item shows the rounded percentage',
+      context.text === '$(claude)$(dashboard) 31%', context.text);
+    check('context item is visible', context.visible === true);
+    check('context item is green below the warning threshold',
+      context.color && context.color.id === 'charts.green',
+      context.color && context.color.id);
+
+    check('cache countdown is visible', cache.visible === true);
+    check('cache countdown shows minutes and seconds left, near 59:00',
+      /^5[89]:[0-5]\d$/.test(cache.text), cache.text);
+    const expiry = new Date((lastCall + 3600) * 1000);
+    const hhmm = String(expiry.getHours()).padStart(2, '0') + ':' + String(expiry.getMinutes()).padStart(2, '0');
+    check('cache hover names the deadline rather than repeating the countdown',
+      String(cache.tooltip) === `Cache expires ${hhmm} (detected 1h TTL)`, String(cache.tooltip));
+
+    check('model and effort item is visible', effort.visible === true);
+    check('model and effort item reads opus·high', effort.text === 'opus·high', effort.text);
+    check('usage dot stays hidden while both limits are low', usage.visible === false);
+
+    const tip = String(context.tooltip && context.tooltip.value);
+    check('main hover carries the context percentage', /Context&nbsp;31%/.test(tip), tip);
+    check('main hover carries the cache deadline', tip.includes(`Cache expires ${hhmm}`), tip);
+    check('main hover carries both usage limits',
+      /Session limit \(5h\): 12% used/.test(tip) && /Weekly limit \(all models\): 44% used/.test(tip), tip);
+
+    // The hover must be byte-identical from one second to the next, or an open
+    // popup is torn down and rebuilt on every tick.
+    const before = String(context.tooltip.value);
+    await new Promise((r) => setTimeout(r, 1150));
+    check('the hover text does not change on the next render',
+      String(context.tooltip.value) === before, String(context.tooltip.value));
+    check('the countdown in the bar did move', cache.text !== undefined);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);
