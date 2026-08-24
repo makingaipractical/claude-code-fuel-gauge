@@ -831,6 +831,15 @@ async function run(name, fn) {
     check('model and effort item reads opus·high', effort.text === 'opus·high', effort.text);
     check('usage dot stays hidden while both limits are low', usage.visible === false);
 
+    // Each item is named, so VS Code's status bar right-click menu can list them
+    // separately and remember which ones a user hides.
+    const named = [context, cache, effort, usage];
+    check('every item has a readable name',
+      named.every((b) => typeof b.name === 'string' && b.name.startsWith('Fuel Gauge: ')),
+      JSON.stringify(named.map((b) => b.name)));
+    check('every item has its own id, so hiding one does not hide the rest',
+      new Set(named.map((b) => b.id)).size === 4, JSON.stringify(named.map((b) => b.id)));
+
     const tip = String(context.tooltip && context.tooltip.value);
     check('main hover carries the context percentage', /Context&nbsp;31%/.test(tip), tip);
     check('main hover carries the cache deadline', tip.includes(`Cache expires ${hhmm}`), tip);

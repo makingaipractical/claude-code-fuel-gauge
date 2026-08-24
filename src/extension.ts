@@ -516,29 +516,42 @@ export function activate(context: vscode.ExtensionContext) {
   cleanupTimer = setInterval(cleanupStaleSessions, 60 * 60 * 1000); // Hourly
   setupTerminalTracking(context);
 
+  // Each item gets its own id and a readable name. VS Code lists status bar
+  // items by name in the bar's right-click menu and remembers what a user hides
+  // there, so naming them is what lets someone keep, say, the context gauge and
+  // hide the cache countdown — without us inventing a setting for it. Items
+  // created without an id all share the extension's id and cannot be told apart.
   statusBarItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.context',
     vscode.StatusBarAlignment.Right,
     100
   );
+  statusBarItem.name = 'Fuel Gauge: context';
   statusBarItem.tooltip = 'Claude Code Fuel Gauge';
   context.subscriptions.push(statusBarItem);
 
   cacheStatusBarItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.cache',
     vscode.StatusBarAlignment.Right,
     99
   );
+  cacheStatusBarItem.name = 'Fuel Gauge: cache countdown';
   context.subscriptions.push(cacheStatusBarItem);
 
   effortStatusBarItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.modelEffort',
     vscode.StatusBarAlignment.Right,
     98
   );
+  effortStatusBarItem.name = 'Fuel Gauge: model and effort';
   context.subscriptions.push(effortStatusBarItem);
 
   usageStatusBarItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.usage',
     vscode.StatusBarAlignment.Right,
     97
   );
+  usageStatusBarItem.name = 'Fuel Gauge: usage alert';
   context.subscriptions.push(usageStatusBarItem);
 
   startPolling();

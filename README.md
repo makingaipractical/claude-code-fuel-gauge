@@ -118,8 +118,12 @@ The cache countdown gets your plan's cache lifetime from Claude Code itself. On 
 
 - VS Code 1.93+ (or a compatible fork)
 - Claude Code CLI — works with any model and with both the 200k and 1M-token context windows
-- Python 3 (used by the bridge script to parse JSON)
+- `bash` and Python 3 — the bridge script is a shell script that uses `python3` to read Claude Code's JSON.
+  On macOS, `python3` comes with the Xcode Command Line Tools. Most developers already have them; if you do not,
+  the first run pops Apple's "Install command line developer tools?" dialog. Install them once with
+  `xcode-select --install` and the gauge works from then on.
 - Usage limits display: a Claude subscription plan (Pro/Max). API-key sessions don't have these limits, so the display stays hidden.
+- Usage limits on a **Team plan**: Claude Code does not send the limit numbers to the status line for Team plan sessions ([claude-code#84995](https://github.com/anthropics/claude-code/issues/84995)), so the usage alert dot and the 5-hour and weekly lines in the hover stay empty there. Everything else works normally.
 
 ## Settings
 
@@ -129,11 +133,13 @@ The cache countdown gets your plan's cache lifetime from Claude Code itself. On 
 | `fuel-gauge.warningThreshold` | 60 | Context % at which the indicator turns yellow |
 | `fuel-gauge.dangerThreshold` | 80 | Context % at which the indicator turns red |
 | `fuel-gauge.systemOverhead` | 0 | Deprecated, and safe to delete from your settings. A number of tokens to subtract from the context window before working out the percentage. Used only if Claude Code sends no percentage of its own |
-| `fuel-gauge.cacheTTL` | `null` (auto) | Prompt-cache TTL in seconds. Leave null to auto-detect. Common: `300` (5 min, API key), `3600` (1 hour, Max) |
+| `fuel-gauge.cacheTTL` | `null` (auto) | How long the prompt cache lives, in seconds. Leave it empty and Fuel Gauge reads the answer from Claude Code's own record. Set `300` (5 minutes) or `3600` (1 hour) only to override that |
 | `fuel-gauge.cacheWarningSeconds` | `null` (off) | Play 3 short beeps when the cache countdown drops below this many seconds. macOS only. Example: `180` for a 3-minute warning |
 | `fuel-gauge.effortStyle` | `text` | Model·effort item: `text` to show it, `off` to hide it |
 | `fuel-gauge.showUsage` | `true` | Show session/weekly usage in the hover, with the alert dot when a limit is high |
 | `fuel-gauge.manageStatusLine` | `true` | Let Fuel Gauge use Claude Code's status line slot. Set to `false` to keep it out of `~/.claude/settings.json` entirely — the gauge then shows nothing |
+
+To hide one of the four items without hiding the rest, right-click the status bar itself: VS Code lists them as **Fuel Gauge: context**, **cache countdown**, **model and effort** and **usage alert**, and remembers what you switch off. No setting needed.
 
 ## Known issues
 
@@ -166,6 +172,8 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 **The cache countdown now reads your cache lifetime instead of guessing it.** Earlier versions worked out whether your plan uses a five-minute or a one-hour prompt cache by watching token counts: a cache that survived a long idle gap meant an hour, and a cache miss after a six-minute gap meant five minutes. The second rule was wrong. A cache miss after a short gap usually means something earlier in the conversation changed and invalidated the cache, not that the cache expired — and because the answer was saved for the whole account, one bad guess put every window on a five-minute countdown and showed `expired` beside sessions that were very much alive. Claude Code writes down which cache it asked for on every turn, so Fuel Gauge now reads that instead of inferring it. The reading is exact, it corrects itself on the next update, and there is nothing for you to change. If that record cannot be read — an older Claude Code that does not say where the transcript is, a file that is not readable — Fuel Gauge falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` still overrides everything.
 
 **No more green 0% straight after `/compact`.** Claude Code hands the status line an empty context window for the moment between a compact finishing and your next message — nothing is wrong, it simply has no number yet ([claude-code#86785](https://github.com/anthropics/claude-code/issues/86785)). Fuel Gauge used to show that as `0%` in green, which is the most reassuring thing it can say at the exact moment you look to check whether the compact worked. The window is not empty at that point — it holds the summary and your CLAUDE.md — so the gauge now keeps the last number it had, writes it with a tilde (`~42%`) and drops the colour, and the hover explains that the reading updates on your next turn.
+
+**Each item can now be hidden on its own.** The four items are named in VS Code's status bar right-click menu — Fuel Gauge: context, cache countdown, model and effort, usage alert — so you can switch off the ones you do not want and VS Code remembers.
 
 **`no session` instead of `0%`.** When no Claude Code session belongs to the folder you have open, the gauge used to show `0%`, which looks like a real reading of an empty context window. It now says `no session`, and the hover explains that sessions are matched by the folder they were started in.
 
