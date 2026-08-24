@@ -19,9 +19,16 @@ function makeVscode() {
   };
   // Status bar items are recorded so a scenario can read back what the user
   // would actually see: the text, the tooltip, and whether the item is shown.
-  const bar = (alignment, priority) => {
+  // Accepts either createStatusBarItem overload — (alignment, priority) or
+  // (id, alignment, priority) — so the harness does not depend on which one the
+  // extension happens to use.
+  const bar = (...args) => {
+    const hasId = typeof args[0] === 'string';
+    const id = hasId ? args[0] : undefined;
+    const priority = hasId ? args[2] : args[1];
     const item = {
-      priority, text: '', tooltip: '', color: undefined, command: undefined,
+      id, priority, name: undefined,
+      text: '', tooltip: '', color: undefined, command: undefined,
       visible: false,
       show() { this.visible = true; }, hide() { this.visible = false; },
       dispose() {},
@@ -837,6 +844,127 @@ async function run(name, fn) {
     check('the hover text does not change on the next render',
       String(context.tooltip.value) === before, String(context.tooltip.value));
     check('the countdown in the bar did move', cache.text !== undefined);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 21. RIGHT AFTER /compact, CLAUDE CODE REPORTS AN EMPTY WINDOW.
+  //     It is not empty — it holds the summary and CLAUDE.md — so writing 0
+  //     would paint a green empty tank at the moment someone checks whether the
+  //     compact worked (anthropics/claude-code#86785).
+  await run('compact-context-unknown', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const runBridge = (payload) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify(payload), env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(path.join(fgDir, payload.session_id + '.json'), 'utf-8'));
+    };
+
+    // A working session, 42% full.
+    const before = runBridge({
+      session_id: 'compacted', cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, used_percentage: 42, total_input_tokens: 84000,
+        current_usage: { input_tokens: 2, output_tokens: 900,
+          cache_creation_input_tokens: 1000, cache_read_input_tokens: 82000 },
+      },
+    });
+    check('a working session reports its real percentage', before.used_percentage === 42);
+    check('and is not flagged as unknown', before.context_unknown === false);
+
+    // The payload Claude Code sends immediately after /compact.
+    const compacted = runBridge({
+      session_id: 'compacted', cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, used_percentage: 0, total_input_tokens: 0,
+        current_usage: null,
+      },
+    });
+    check('after /compact the last real number is held, not replaced by 0',
+      compacted.used_percentage === 42, String(compacted.used_percentage));
+    check('and it is flagged as no longer a measurement',
+      compacted.context_unknown === true, String(compacted.context_unknown));
+    check('the cache clock is still reset by the compact',
+      compacted.last_api_call_ts === 0, String(compacted.last_api_call_ts));
+
+    // Polling again before the user says anything must not change the story.
+    const stillCompacted = runBridge({
+      session_id: 'compacted', cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, used_percentage: 0, total_input_tokens: 0,
+        current_usage: { input_tokens: 0, output_tokens: 0,
+          cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    check('an all-zero current_usage counts the same as a null one',
+      stillCompacted.used_percentage === 42 && stillCompacted.context_unknown === true,
+      String(stillCompacted.used_percentage) + '/' + String(stillCompacted.context_unknown));
+
+    // The next turn produces a real reading again.
+    const nextTurn = runBridge({
+      session_id: 'compacted', cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, used_percentage: 12, total_input_tokens: 24000,
+        current_usage: { input_tokens: 2, output_tokens: 300,
+          cache_creation_input_tokens: 500, cache_read_input_tokens: 23000 },
+      },
+    });
+    check('the next turn replaces the held number', nextTurn.used_percentage === 12,
+      String(nextTurn.used_percentage));
+    check('and clears the flag', nextTurn.context_unknown === false,
+      String(nextTurn.context_unknown));
+
+    // A brand-new session has no previous number, so its 0% is real.
+    const fresh = runBridge({
+      session_id: 'brand-new', cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: {
+        context_window_size: 200000, used_percentage: 0, total_input_tokens: 0,
+        current_usage: null,
+      },
+    });
+    check('a new session first zero stays a real 0%', fresh.used_percentage === 0,
+      String(fresh.used_percentage));
+    check('and is not flagged', fresh.context_unknown === false, String(fresh.context_unknown));
+  });
+
+  // 22. THE HELD NUMBER, RENDERED. A tilde and no colour: the gauge must not
+  //     claim a confidence it does not have.
+  await run('render-context-unknown', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+
+    const nowSec = Date.now() / 1000;
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'held.json'), JSON.stringify({
+      cwd: ws, project_dir: ws,
+      used_percentage: 42, remaining_percentage: 58, context_unknown: true,
+      total_input_tokens: 0, total_output_tokens: 0,
+      context_window_size: 200000, model: 'claude-opus-5', session_id: 'held',
+      timestamp: nowSec, detected_ttl: 3600, last_api_call_ts: 0,
+      rate_limit_5h_pct: -1, rate_limit_7d_pct: -1, effort_level: 'high',
+    }, null, 2));
+
+    ext.activate(ctx());
+
+    const context = barAt(100);
+    check('the held number shows with a tilde', context.text === '$(claude)$(dashboard) ~42%',
+      context.text);
+    check('and carries no colour', context.color === undefined,
+      context.color && context.color.id);
+    const tip = String(context.tooltip && context.tooltip.value);
+    check('the hover says the reading is paused, not that the window is empty',
+      tip.includes('Context reading paused') && tip.includes('right after /compact') &&
+      tip.includes('updates on your next turn'), tip);
+    check('the cache countdown is hidden while the clock is reset',
+      barAt(99).visible === false);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 

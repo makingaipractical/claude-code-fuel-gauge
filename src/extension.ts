@@ -9,6 +9,9 @@ interface ContextStatus {
   project_dir: string;
   used_percentage: number;
   remaining_percentage: number;
+  /** The reading is the last known one, not a current measurement — see the
+   *  post-/compact case in the bridge. */
+  context_unknown?: boolean;
   total_input_tokens: number;
   total_output_tokens: number;
   context_window_size: number;
@@ -96,6 +99,7 @@ session_id = os.environ.get('BD_SESSION_ID', '')
 prev_total_in = 0
 prev_detected_ttl = 0
 prev_last_api_call_ts = 0
+prev_used_pct = 0
 if bd_dir and session_id:
     prev_file = os.path.join(bd_dir, session_id + '.json')
     try:
@@ -104,6 +108,7 @@ if bd_dir and session_id:
             prev_total_in = prev.get('total_input_tokens', 0) or 0
             prev_detected_ttl = prev.get('detected_ttl', 0) or 0
             prev_last_api_call_ts = prev.get('last_api_call_ts', 0) or 0
+            prev_used_pct = prev.get('used_percentage', 0) or 0
     except Exception:
         pass
 
@@ -201,6 +206,21 @@ total_in_now = cw.get('total_input_tokens', 0) or 0
 api_call_happened = total_in_now > prev_total_in
 gap = (now - prev_last_api_call_ts) if prev_last_api_call_ts > 0 else 0
 
+# Right after /compact, Claude Code hands the status line an empty context window
+# — used_percentage 0, current_usage all zeros — and keeps doing so until the
+# user's next turn (anthropics/claude-code#86785, confirmed by a maintainer).
+# Reporting that as 0% paints a confident green empty tank at the one moment
+# someone looks at the gauge to see whether the compact worked. The window is not
+# empty: it holds the summary and CLAUDE.md, and we cannot see how much. So the
+# last real number is held and flagged as stale, and the extension says so.
+# A brand-new session is a different thing entirely: it has no previous number,
+# so its first 0% is real and is left alone.
+context_unknown = False
+if (inp + out + cache_create + cache_read) == 0 and total_in_now == 0 and prev_used_pct > 0:
+    used_pct = prev_used_pct
+    remaining_pct = max(0.0, 100.0 - used_pct)
+    context_unknown = True
+
 # Nothing about reading someone else's file may stop the gauge. Whatever shape
 # a future transcript takes, the worst it can do here is leave the TTL unknown,
 # and everything below knows what to do with that.
@@ -293,6 +313,7 @@ output = {
     'project_dir': project_dir,
     'used_percentage': used_pct,
     'remaining_percentage': remaining_pct,
+    'context_unknown': context_unknown,
     'total_input_tokens': total_in_now,
     'total_output_tokens': cw.get('total_output_tokens', 0),
     'context_window_size': window_size,
@@ -1517,11 +1538,19 @@ function renderStatus() {
   } else if (pct >= warningThreshold) {
     contextSeverity = 1;
   }
-  const contextColor = fileAbandoned ? undefined : severityColor(contextSeverity);
+  // Right after /compact the number is the last one we had, not a measurement.
+  // It shows with a tilde and no colour, because colouring it would state a
+  // confidence we do not have.
+  const contextUnknown = data.context_unknown === true;
+  const contextColor = (fileAbandoned || contextUnknown) ? undefined : severityColor(contextSeverity);
+  const contextLine = contextUnknown
+    ? 'Context reading paused: Claude Code reports an empty window right after /compact. ' +
+      'The number updates on your next turn.'
+    : `Context&nbsp;${pct}%`;
 
   // Main item: context percentage only. The cache countdown is a separate item
   // (below) so it can carry its own urgency color independent of context.
-  statusBarItem.text = `$(claude)$(dashboard) ${pct}%`;
+  statusBarItem.text = `$(claude)$(dashboard) ${contextUnknown ? '~' : ''}${pct}%`;
   statusBarItem.color = contextColor;
 
   // Cache state — only meaningful if bridge has populated last_api_call_ts.
@@ -1532,7 +1561,7 @@ function renderStatus() {
   if (!hasCacheInfo) {
     cacheStatusBarItem.hide();
     statusBarItem.tooltip = buildTooltip(
-      modelCap, effortCap, effortLevel, `Context&nbsp;${pct}%`, usageTip
+      modelCap, effortCap, effortLevel, contextLine, usageTip
     );
     statusBarItem.show();
     return;
@@ -1590,7 +1619,7 @@ function renderStatus() {
     modelCap,
     effortCap,
     effortLevel,
-    `Context&nbsp;${pct}%<br>${cacheTooltipFragment}${rateLimitWarning}`,
+    `${contextLine}<br>${cacheTooltipFragment}${rateLimitWarning}`,
     usageTip
   );
   statusBarItem.show();
