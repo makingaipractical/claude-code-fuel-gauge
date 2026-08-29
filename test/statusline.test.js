@@ -884,9 +884,23 @@ async function run(name, fn) {
     check('cache countdown shows minutes and seconds left, near 59:00',
       /^5[89]:[0-5]\d$/.test(cache.text), cache.text);
     const expiry = new Date((lastCall + 3600) * 1000);
-    const hhmm = String(expiry.getHours()).padStart(2, '0') + ':' + String(expiry.getMinutes()).padStart(2, '0');
+    const hhmm = expiry.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     check('cache hover names the deadline rather than repeating the countdown',
-      String(cache.tooltip) === `Cache expires ${hhmm} (detected 1h TTL)`, String(cache.tooltip));
+      String(cache.tooltip) === `Cache expires at ${hhmm} (detected 1h TTL)`, String(cache.tooltip));
+    // Ticket #3131: the bar shows a duration (59:19) and the hover a clock time,
+    // and both have the same NN:NN shape. The word "at" is what tells them
+    // apart, so it is checked on its own.
+    check('cache hover marks the deadline as a clock time with the word "at"',
+      /Cache expires at /.test(String(cache.tooltip)), String(cache.tooltip));
+    // The same hover also carries the rate-limit reset times. Both clock times
+    // must be written the machine's way, or one hover shows 13:22 next to
+    // 02:20 PM.
+    const resetClock = new Date((nowSec + 7200) * 1000)
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const twelveHour = / (AM|PM)$/.test(resetClock);
+    check('cache deadline uses the same clock format as the reset times',
+      / (AM|PM)$/.test(hhmm) === twelveHour && String(cache.tooltip).includes(hhmm),
+      `deadline=${hhmm} reset=${resetClock} tooltip=${String(cache.tooltip)}`);
 
     check('model and effort item is visible', effort.visible === true);
     check('model and effort item reads opus·high', effort.text === 'opus·high', effort.text);
@@ -903,7 +917,7 @@ async function run(name, fn) {
 
     const tip = String(context.tooltip && context.tooltip.value);
     check('main hover carries the context percentage', /Context&nbsp;31%/.test(tip), tip);
-    check('main hover carries the cache deadline', tip.includes(`Cache expires ${hhmm}`), tip);
+    check('main hover carries the cache deadline', tip.includes(`Cache expires at ${hhmm}`), tip);
     check('main hover carries both usage limits',
       /Session limit \(5h\): 12% used/.test(tip) && /Weekly limit \(all models\): 44% used/.test(tip), tip);
 

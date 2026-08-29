@@ -1361,11 +1361,15 @@ function severityColor(sev: number): vscode.ThemeColor {
   return COLOR_GREEN;
 }
 
-// Wall-clock HH:MM, for hover text that must stay byte-identical between
-// one-second renders.
+// Wall-clock time, for hover text that must stay byte-identical between
+// one-second renders. It uses the machine's own clock format, the same call the
+// rate-limit reset times use, so that one hover never mixes a 12-hour time with
+// a 24-hour one. On a 12-hour machine that difference is what made the cache
+// deadline unreadable: the bar showed 59:19 and the hover showed 13:22, and the
+// two looked like disagreeing countdowns instead of a countdown and a clock.
 function formatClockTime(epochSeconds: number): string {
   const d = new Date(epochSeconds * 1000);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 // Title-case a hyphenated label: 'x-high' → 'X-High', 'opus' → 'Opus'.
@@ -1638,7 +1642,11 @@ function renderStatus() {
     // so an open hover is left alone instead of being torn down every second.
     // Changing an item's text never touches the hover, so the bar keeps
     // counting down as before.
-    cacheTooltipFragment = `Cache expires ${formatClockTime(lastApiCallTs + ttl)} (${ttlLabel})`;
+    // "at" marks the number as a clock time. Without it the reader sees two
+    // numbers of the same shape — 59:19 in the bar, 13:22 in the hover — and
+    // reads the second one as a second countdown that disagrees with the first
+    // (ticket #3131).
+    cacheTooltipFragment = `Cache expires at ${formatClockTime(lastApiCallTs + ttl)} (${ttlLabel})`;
   }
 
   // Rate-limit warning when overage downgrade is imminent.
