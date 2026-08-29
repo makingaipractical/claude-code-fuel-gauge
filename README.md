@@ -177,13 +177,15 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 
 ## Version History
 
-**v0.9.1** — Two fixes.
+**v0.9.1** — Two fixes and three smaller changes.
 
 **The cache countdown now reads your cache lifetime instead of guessing it.** Earlier versions worked out whether your plan uses a five-minute or a one-hour prompt cache by watching token counts: a cache that survived a long idle gap meant an hour, and a cache miss after a six-minute gap meant five minutes. The second rule was wrong. A cache miss after a short gap usually means something earlier in the conversation changed and invalidated the cache, not that the cache expired — and because the answer was saved for the whole account, one bad guess put every window on a five-minute countdown and showed `expired` beside sessions that were very much alive. Claude Code writes down which cache it asked for on every turn, so Fuel Gauge now reads that instead of inferring it. The reading is exact, it corrects itself on the next update, and there is nothing for you to change. If that record cannot be read — an older Claude Code that does not say where the transcript is, a file that is not readable — Fuel Gauge falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` still overrides everything.
 
 **No more green 0% straight after `/compact`.** Claude Code hands the status line an empty context window for the moment between a compact finishing and your next message — nothing is wrong, it simply has no number yet ([claude-code#86785](https://github.com/anthropics/claude-code/issues/86785)). Fuel Gauge used to show that as `0%` in green, which is the most reassuring thing it can say at the exact moment you look to check whether the compact worked. The window is not empty at that point — it holds the summary and your CLAUDE.md — so the gauge now keeps the last number it had, writes it with a tilde (`~42%`) and drops the colour, and the hover explains that the reading updates on your next turn.
 
 **Each item can now be hidden on its own.** The four items are named in VS Code's status bar right-click menu — Fuel Gauge: context, cache countdown, model and effort, usage alert — so you can switch off the ones you do not want and VS Code remembers.
+
+**The cache hover says "expires at 1:22 PM".** The bar shows how long the cache has left (`59:19`) and the hover shows when it runs out. Both used to be printed as `NN:NN`, so they read as two countdowns that disagreed. The hover now names the clock time in your system's format, the same way the usage reset times are shown.
 
 **The gauge hides itself when there is nothing to measure.** When no Claude Code session belongs to the folder you have open, earlier versions showed `0%` — which reads as a real measurement of an empty context window, when in fact there is nothing to measure. All four items now disappear instead, and come back on their own when a session starts in that folder. If a window is empty and you expected it not to be, run **Claude Code Fuel Gauge: Show Diagnostics**: it names the folder the window has open and says whether any session matches it. Claude Code sessions are matched by the folder they were started in, which is the usual reason.
 
