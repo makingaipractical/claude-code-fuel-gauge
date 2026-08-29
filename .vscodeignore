@@ -5,6 +5,9 @@ test/**
 tsconfig.json
 **/*.map
 bridge/**
+.github/**
+CONTRIBUTING.md
+SECURITY.md
 
 # Old builds
 *.vsix

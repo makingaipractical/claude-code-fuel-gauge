@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in Claude Code Fuel Gauge does not work the way it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. Please fill in the boxes below.
+        The diagnostics box is the one that helps most, so please do not skip it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect instead?
+      description: Describe what you saw in the status bar and what you thought it would show.
+      placeholder: |
+        The context percentage stayed at 42% for an hour while I was working.
+        I expected it to go up as the conversation got longer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Output of the Show Diagnostics command
+      description: >
+        Open the Command Palette in VS Code (Ctrl+Shift+P on Windows and Linux,
+        Cmd+Shift+P on a Mac), type "Claude Code Fuel Gauge: Show Diagnostics" and press Enter,
+        then copy everything from the panel that opens and paste it here.
+        The report is read-only. It lists your settings file, the bridge script and the
+        session files Fuel Gauge can see. It contains no message text from your Claude Code
+        conversations.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      description: Run "claude --version" in a terminal and paste the answer.
+      placeholder: "2.1.241"
+    validations:
+      required: true
+
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code version
+      description: In VS Code, open Help > About and copy the version number. If you use a fork such as Cursor or Antigravity, please say which one.
+      placeholder: "1.133.0"
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.6, Windows 11, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: plan
+    attributes:
+      label: Which Claude plan do you use?
+      description: >
+        Claude Code sends different information on different plans. On a Team plan, for
+        example, it sends no usage limits at all, so those lines stay empty.
+      options:
+        - Pro
+        - Max
+        - Team
+        - Enterprise
+        - API key
+        - Don't know
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot (optional)
+      description: A picture of the status bar often shows the problem faster than a description. Drag the image file into this box.
+    validations:
+      required: false

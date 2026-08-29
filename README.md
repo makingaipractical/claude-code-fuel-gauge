@@ -95,7 +95,7 @@ Fuel Gauge asks before taking the slot, saves what was there, and can put it bac
 
 - **Fuel Gauge: Restore Previous Status Line** — puts your command back and stops Fuel Gauge managing the slot.
 - **Fuel Gauge: Connect Status Line** — asks again if you declined.
-- **Fuel Gauge: Show Diagnostics** — read-only report if the gauge is dark.
+- **Claude Code Fuel Gauge: Show Diagnostics** — read-only report if the gauge is dark.
 - `fuel-gauge.manageStatusLine` — set to `false` to keep Fuel Gauge away from your settings entirely.
 
 The two cannot run at the same time. That is a Claude Code limitation, not a choice we made.
@@ -157,6 +157,10 @@ To hide one of the four items without hiding the rest, right-click the status ba
 
 **Icon differences across editors.** In VS Code the status bar shows a Claude icon next to a dashboard gauge. In forks like Antigravity that lack newer codicons, only the gauge appears. Functionality is identical.
 
+## Questions, bugs and ideas
+
+If something is broken, [open an issue](https://github.com/makingaipractical/claude-code-fuel-gauge/issues/new/choose) and pick the bug report template. It asks you to paste the output of the **Claude Code Fuel Gauge: Show Diagnostics** command, which lists your settings file, the bridge script and the session files Fuel Gauge can see — that report answers most of the questions I would otherwise have to ask you, so please include it. Questions about how any of this works belong in [Discussions under Q&A](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/q-a), and things you would like Fuel Gauge to do belong in [Discussions under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas). If the extension is working for you, please [leave a review on the Marketplace](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge&ssr=false#review-details) — reviews are how other people find it.
+
 ## Privacy
 
 No API calls, no telemetry, no runtime dependencies. Everything runs locally on Claude Code's own statusline data — including the usage numbers.
@@ -175,7 +179,7 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 
 **Each item can now be hidden on its own.** The four items are named in VS Code's status bar right-click menu — Fuel Gauge: context, cache countdown, model and effort, usage alert — so you can switch off the ones you do not want and VS Code remembers.
 
-**The gauge hides itself when there is nothing to measure.** When no Claude Code session belongs to the folder you have open, earlier versions showed `0%` — which reads as a real measurement of an empty context window, when in fact there is nothing to measure. All four items now disappear instead, and come back on their own when a session starts in that folder. If a window is empty and you expected it not to be, run **Fuel Gauge: Show Diagnostics**: it names the folder the window has open and says whether any session matches it. Claude Code sessions are matched by the folder they were started in, which is the usual reason.
+**The gauge hides itself when there is nothing to measure.** When no Claude Code session belongs to the folder you have open, earlier versions showed `0%` — which reads as a real measurement of an empty context window, when in fact there is nothing to measure. All four items now disappear instead, and come back on their own when a session starts in that folder. If a window is empty and you expected it not to be, run **Claude Code Fuel Gauge: Show Diagnostics**: it names the folder the window has open and says whether any session matches it. Claude Code sessions are matched by the folder they were started in, which is the usual reason.
 
 **v0.9.0** — Two changes.
 

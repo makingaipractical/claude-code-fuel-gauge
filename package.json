@@ -9,6 +9,11 @@
     "type": "git",
     "url": "https://github.com/makingaipractical/claude-code-fuel-gauge"
   },
+  "bugs": {
+    "url": "https://github.com/makingaipractical/claude-code-fuel-gauge/issues"
+  },
+  "homepage": "https://github.com/makingaipractical/claude-code-fuel-gauge#readme",
+  "qna": "https://github.com/makingaipractical/claude-code-fuel-gauge/discussions",
   "engines": {
     "vscode": "^1.93.0"
   },
