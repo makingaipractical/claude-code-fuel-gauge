@@ -15,7 +15,7 @@ Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full t
 
 Fuel Gauge never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes no network calls of any kind — not to me, not to Anthropic, not even to check for a new version. Every number it shows comes from files Claude Code already writes on your own disk.
 
-I checked that rather than assumed it. The code was audited for network calls on 21 August 2026, and again on 24 August, when the extension started reading the tail of the session transcript.
+I checked that rather than assumed it: I audited the code for network calls on 21 August 2026, and again on 24 August, when the extension started reading the tail of the session transcript. You can check it yourself in a minute — the source is public, it has no runtime dependencies, and a search of `src/extension.ts` for `http`, `fetch` or `net` finds nothing.
 
 This is the complete list of what it reads and writes:
 
@@ -33,7 +33,7 @@ Nothing else is read, nothing else is written, and nothing leaves the machine. T
 
 Anthropic keeps the front of your conversation warm in a prompt cache, for five minutes or an hour depending on your plan. While it is warm, your next message reuses it. Let it go cold and the whole conversation is read again from the start: the next turn is slower, and on API billing it costs more.
 
-Fuel Gauge shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. As of August 2026 no other VS Code extension shows this. Here a comfortable `34%` context sits in green next to an `expired` cache in red.
+Fuel Gauge shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `34%` context sits in green next to an `expired` cache in red.
 
 <p align="center">
   <img src="images/cache-expired.png" width="300" alt="Status bar showing 34% context in green next to an expired cache countdown in red, and opus·x-high — the cache carries its own color">
