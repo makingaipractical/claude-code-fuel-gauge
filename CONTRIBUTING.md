@@ -7,7 +7,7 @@ Thank you for wanting to help.
 ```bash
 npm install      # development dependencies only; the extension itself has no runtime dependencies
 npm run compile  # TypeScript in src/ becomes out/extension.js
-npm test         # 142 assertions
+npm test         # 144 assertions
 ```
 
 Press **F5** in VS Code to open an Extension Development Host: a second VS Code window
@@ -26,6 +26,6 @@ activation overwrites your changes.
 
 ## Before you open a pull request
 
-- Run `npm test`. All 142 assertions must pass.
+- Run `npm test`. All 144 assertions must pass.
 - For anything larger than a small fix, open an issue or a discussion first, so we can
   agree on the approach before you write the code.

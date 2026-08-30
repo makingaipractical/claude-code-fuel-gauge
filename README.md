@@ -15,7 +15,7 @@ Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full t
 
 Fuel Gauge never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes no network calls of any kind — not to me, not to Anthropic, not even to check for a new version. Every number it shows comes from files Claude Code already writes on your own disk.
 
-I checked that rather than assumed it: I audited the code for network calls on 21 August 2026, and again on 24 August, when the extension started reading the tail of the session transcript. You can check it yourself in a minute — the source is public, it has no runtime dependencies, and a search of `src/extension.ts` for `http`, `fetch` or `net` finds nothing.
+I checked that rather than assumed it: I audited the code for network calls on 21 August 2026, and again on 24 August, when the extension started reading the tail of the session transcript. You can check it yourself in a minute — the source is public, it has no runtime dependencies, and a search of `src/extension.ts` for `http` or `fetch` finds nothing.
 
 This is the complete list of what it reads and writes:
 
@@ -185,7 +185,7 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 
 **Each item can now be hidden on its own.** The four items are named in VS Code's status bar right-click menu — Fuel Gauge: context, cache countdown, model and effort, usage alert — so you can switch off the ones you do not want and VS Code remembers.
 
-**The cache hover says "expires at 1:22 PM".** The bar shows how long the cache has left (`59:19`) and the hover shows when it runs out. Both used to be printed as `NN:NN`, so they read as two countdowns that disagreed. The hover now names the clock time in your system's format, the same way the usage reset times are shown.
+**The cache hover says "expires at 01:22 PM".** The bar shows how long the cache has left (`59:19`) and the hover shows when it runs out. Both used to be printed as `NN:NN`, so they read as two countdowns that disagreed. The hover now names the clock time in your system's format, the same way the usage reset times are shown.
 
 **The gauge hides itself when there is nothing to measure.** When no Claude Code session belongs to the folder you have open, earlier versions showed `0%` — which reads as a real measurement of an empty context window, when in fact there is nothing to measure. All four items now disappear instead, and come back on their own when a session starts in that folder. If a window is empty and you expected it not to be, run **Claude Code Fuel Gauge: Show Diagnostics**: it names the folder the window has open and says whether any session matches it. Claude Code sessions are matched by the folder they were started in, which is the usual reason.
 
