@@ -7,7 +7,7 @@ Thank you for wanting to help.
 ```bash
 npm install      # development dependencies only; the extension itself has no runtime dependencies
 npm run compile  # TypeScript in src/ becomes out/extension.js
-npm test         # 144 assertions
+npm test         # the full test suite; the runner prints its own count
 ```
 
 Press **F5** in VS Code to open an Extension Development Host: a second VS Code window
@@ -26,6 +26,15 @@ activation overwrites your changes.
 
 ## Before you open a pull request
 
-- Run `npm test`. All 144 assertions must pass.
+- Run `npm test`. The whole suite must pass.
 - For anything larger than a small fix, open an issue or a discussion first, so we can
   agree on the approach before you write the code.
+- By sending a pull request you agree that your contribution is licensed under the same
+  [MIT licence](LICENSE) as this repository.
+
+## What happens next
+
+Making AI Practical is one person, so I aim to reply to a pull request or an issue
+within two weeks. If you have heard nothing after that, a polite nudge is welcome and
+will not annoy anyone. A large pull request that arrives unannounced may sit longer —
+which is why the issue-first line above is a kindness to you, not a procedure.

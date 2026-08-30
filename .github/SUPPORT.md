@@ -11,5 +11,9 @@ command. That output answers most of the questions I would otherwise have to ask
 **You have an idea.** Post it in
 [Discussions, under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas).
 
+**You want to reach me directly.** For anything that does not belong on a public
+tracker — including work enquiries — email
+[info@makingaipractical.com](mailto:info@makingaipractical.com).
+
 **You found a security problem.** Please do not open a public issue. Read
 [SECURITY.md](../SECURITY.md) for how to report it privately.

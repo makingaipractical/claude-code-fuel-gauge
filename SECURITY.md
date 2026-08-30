@@ -20,8 +20,12 @@ It reads and writes these files, and nothing else:
 Please report privately rather than in a public issue. Go to the
 [Security tab of this repository](https://github.com/makingaipractical/claude-code-fuel-gauge/security)
 and choose **Report a vulnerability**. That opens a private report that only the maintainer
-can see.
+can see. If you prefer email, send it to [info@makingaipractical.com](mailto:info@makingaipractical.com)
+with "security" somewhere in the subject line.
 
-Please include what an attacker could do, and the steps to reproduce it. You will get a
-reply as soon as the report is read. If the problem is real, the fix ships in the next
-release and the report stays private until it does.
+Please include what an attacker could do, and the steps to reproduce it. I aim to
+acknowledge a report within five working days; if you have heard nothing after that,
+please send it again — it will have gone astray rather than been ignored. If the problem
+is real, I will fix it as fast as I can, and the report stays private until the fix is
+out. I cannot promise a fix by a particular date, and I would rather say that plainly
+than imply otherwise.

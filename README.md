@@ -8,7 +8,7 @@
 Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits. One window, one session, no slash commands.
 
 <p align="center">
-  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % in green, a cache countdown, and the model-effort indicator — opus·high in one, fable·x-high in the other">
+  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % and cache countdown — green at 31% in one, yellow at 67% in the other — and the model-effort indicator: fable·x-high in one, opus·high in the other">
 </p>
 
 ## Everything stays on your machine
@@ -54,7 +54,7 @@ The countdown itself starts again from the full lifetime on every status line up
 Fuel Gauge shows up to four items, right-aligned, and one shared hover tooltip that breaks everything down.
 
 <p align="center">
-  <img src="images/tooltip.png" width="360" alt="The Fuel Gauge hover tooltip: model and effort in color, then context %, cache countdown, and the session and weekly usage limits with reset times">
+  <img src="images/tooltip.png" width="360" alt="The Fuel Gauge hover tooltip: model and effort in color, then context %, the time the cache expires, and the session and weekly usage limits with reset times">
 </p>
 
 ### Context percentage
@@ -100,7 +100,7 @@ Claude Code has a [statusline feature](https://code.claude.com/docs/en/statuslin
 1. **Bridge script** — installed automatically on first activation. Claude Code pipes session data to it, and it writes one small JSON file per session to `~/.claude/fuel-gauge/`.
 2. **Extension** — polls that directory every 15 seconds, finds the session matching your current workspace, and shows the numbers in the status bar.
 
-Everything — context, cache, model, effort, usage limits — rides that same local feed. No network calls, no tokens, no accounts.
+Everything — context, cache, model, effort, usage limits — rides that same local feed. No network calls, no API keys, no accounts.
 
 Works for both the built-in VS Code extension's sessions and `claude` sessions in the integrated terminal.
 
@@ -118,7 +118,7 @@ Fuel Gauge asks before taking the slot, saves what was there, and can put it bac
 - **Claude Code Fuel Gauge: Show Diagnostics** — read-only report if the gauge is dark.
 - `fuel-gauge.manageStatusLine` — set to `false` to keep Fuel Gauge away from your settings entirely.
 
-The two cannot run at the same time. That is a Claude Code limitation, not a choice we made.
+The two cannot run at the same time. That is a Claude Code limitation, not a choice I made.
 
 ## Requirements
 
@@ -128,6 +128,7 @@ The two cannot run at the same time. That is a Claude Code limitation, not a cho
   On macOS, `python3` comes with the Xcode Command Line Tools. Most developers already have them; if you do not,
   the first run pops Apple's "Install command line developer tools?" dialog. Install them once with
   `xcode-select --install` and the gauge works from then on.
+- Built and tested on macOS. Linux should work — the bridge needs nothing beyond `bash` and `python3` — but I have not run it there. Windows is untested; the bridge is a bash script, so at minimum it needs a `bash` on the path.
 - Usage limits display: a Claude subscription plan (Pro/Max). API-key sessions don't have these limits, so the display stays hidden.
 - Usage limits on a **Team plan**: Claude Code does not send the limit numbers to the status line for Team plan sessions ([claude-code#84995](https://github.com/anthropics/claude-code/issues/84995)), so the usage alert dot and the 5-hour and weekly lines in the hover stay empty there. Everything else works normally.
 
@@ -166,6 +167,8 @@ To hide one of the four items without hiding the rest, right-click the status ba
 ## Questions, bugs and ideas
 
 If something is broken, [open an issue](https://github.com/makingaipractical/claude-code-fuel-gauge/issues/new/choose) and pick the bug report template. It asks you to paste the output of the **Claude Code Fuel Gauge: Show Diagnostics** command, which lists your settings file, the bridge script and the session files Fuel Gauge can see — that report answers most of the questions I would otherwise have to ask you, so please include it. Questions about how any of this works belong in [Discussions under Q&A](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/q-a), and things you would like Fuel Gauge to do belong in [Discussions under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas). If the extension is working for you, please [leave a review on the Marketplace](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge&ssr=false#review-details) — reviews are how other people find it.
+
+If you would rather not use GitHub — or you want to talk about something that does not belong on a public tracker — email [info@makingaipractical.com](mailto:info@makingaipractical.com). And if you want to send a patch, [CONTRIBUTING.md](CONTRIBUTING.md) says how to run everything locally.
 
 ## Privacy
 

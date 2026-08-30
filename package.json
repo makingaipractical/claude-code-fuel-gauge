@@ -1,7 +1,7 @@
 {
   "name": "claude-code-fuel-gauge",
   "displayName": "Claude Code Fuel Gauge",
-  "description": "Live context %, cache countdown, model·effort and usage limits for Claude Code — in your VS Code status bar.",
+  "description": "Live context %, cache countdown, model and effort level, and usage limits for Claude Code — in your VS Code status bar.",
   "version": "0.9.1",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
@@ -25,9 +25,13 @@
     "fuel-gauge",
     "ai",
     "status-bar",
-    "token-usage"
+    "token-usage",
+    "cache",
+    "usage-limits",
+    "statusline"
   ],
   "categories": [
+    "AI",
     "Other"
   ],
   "activationEvents": [
@@ -65,7 +69,7 @@
             "null"
           ],
           "default": null,
-          "description": "How long Claude Code's prompt cache lives, in seconds. Leave this empty and Fuel Gauge reads the answer from Claude Code itself: it records which cache it asked for on every turn. Set a number here only to override that \u2014 300 for five minutes, 3600 for one hour."
+          "description": "How long Claude Code's prompt cache lives, in seconds. Leave this empty and Fuel Gauge reads the answer from Claude Code itself: it records which cache it asked for on every turn. Set a number here only to override that — 300 for five minutes, 3600 for one hour."
         },
         "fuel-gauge.cacheWarningSeconds": {
           "type": [
