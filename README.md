@@ -60,7 +60,7 @@ The percentage is exactly the one Claude Code reports. Run `/context` in a sessi
 
 A compact item like `opus·x-high`, coloured by effort level, gold when you are running `max`. Hover for the full model name and the effort spelled out. Seeing `opus·max` on a medium-sized task is what makes you dial it down, and effort is a large lever on tokens burned. Hide the item with `fuel-gauge.effortStyle: off`. The effort part only appears when the current model reports an effort level.
 
-It also shows you when a session is no longer running the model you picked. Anthropic's Fable tier ships with [additional safety measures for dual-use capabilities](https://www.anthropic.com/news/claude-fable-5-mythos-5), and in my experience Claude Code switches a session from Fable to Opus when the conversation strays into that territory — security work trips it most reliably. Claude Code does announce the switch, but the notice is easy to miss in the stream of terminal text — `fable·x-high` becoming `opus·x-high` in the status bar stays put until you see it.
+It also shows you when a session is no longer running the model you picked. Anthropic's Fable tier ships with [additional safety measures for dual-use capabilities](https://www.anthropic.com/news/claude-fable-5-mythos-5): when Fable's classifiers detect a request in certain areas — cybersecurity, for one — the response is handled by Opus instead, by Anthropic's own account. Claude Code does announce the switch, but the notice is easy to miss in the stream of terminal text — `fable·x-high` becoming `opus·x-high` in the status bar stays put until you see it.
 
 ### Usage limits
 
