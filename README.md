@@ -8,7 +8,7 @@
 Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits. One window, one session, no slash commands.
 
 <p align="center">
-  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % and cache countdown — green at 31% in one, yellow at 67% in the other — and the model-effort indicator: fable·x-high in one, opus·high in the other">
+  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % and cache countdown in green — 20% in one, 9% in the other — and the model-effort indicator, fable·x-high">
 </p>
 
 ## Everything stays on your machine
