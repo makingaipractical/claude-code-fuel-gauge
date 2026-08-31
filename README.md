@@ -5,7 +5,7 @@
   <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://vsmarketplacebadges.dev/installs-short/makingaipractical.claude-code-fuel-gauge.svg?label=installs&color=1f8ceb" alt="Installs"></a>
 </p>
 
-Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits. One window, one session, no slash commands.
+Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits on Anthropic subscription plans.
 
 <p align="center">
   <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % and cache countdown in green — 20% in one, 9% in the other — and the model-effort indicator, fable·x-high">
@@ -13,21 +13,9 @@ Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full t
 
 ## Everything stays on your machine
 
-Fuel Gauge never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes no network calls of any kind — not to me, not to Anthropic, not even to check for a new version. Every number it shows comes from files Claude Code already writes on your own disk.
+Fuel Gauge never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of any kind*. Every number it shows comes from files Claude Code already writes on your own disk.
 
-I checked that rather than assumed it: I audited the code for network calls on 21 August 2026, and again on 24 August, when the extension started reading the tail of the session transcript. You can check it yourself in a minute — the source is public, it has no runtime dependencies, and a search of `src/extension.ts` for `http` or `fetch` finds nothing.
-
-This is the complete list of what it reads and writes:
-
-| File or folder | What Fuel Gauge does with it |
-| --- | --- |
-| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`, and only after you agree to it. Every other setting is left as it was. |
-| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first. |
-| `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. |
-| Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file, to find out whether your plan's prompt cache lasts five minutes or an hour. Two token counters are used. Nothing is written there, and no message text is read. |
-| VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. |
-
-Nothing else is read, nothing else is written, and nothing leaves the machine. The same list is in [SECURITY.md](SECURITY.md), together with how to report a vulnerability privately.
+The complete list of every file it reads and writes — there are five, all under `~/.claude` or VS Code's own storage — is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md).
 
 ## The cache countdown
 
@@ -150,19 +138,19 @@ To hide one of the four items without hiding the rest, right-click the status ba
 
 ## Known issues
 
-**Claude Code shows two different context percentages, and Fuel Gauge follows one of them.** Fuel Gauge shows the figure Claude Code's `/context` command and its status line report: how full the context window is, measured against the whole window. Claude Code also draws a pie in the VS Code prompt box and prints a "Context low" message in the terminal. Those two report something else — how close you are to the point where Claude Code compacts the conversation for you — and they measure it against a smaller window, so they will not agree with Fuel Gauge. They also stay hidden until the window is more than half full, while Fuel Gauge shows a number from the first message onwards. Neither reading is wrong; they are counting different things.
+**The percentage will not match VS Code's pie or the "Context low" message.** Those measure how close you are to an automatic compact, against a smaller window. Fuel Gauge matches `/context` and Claude Code's own status line. Neither reading is wrong; they count different things.
 
-**Usage is all-models only — no per-model bar.** `/usage` shows Max users a separate weekly bar for one model family; Claude Code doesn't include that number in the statusline data. The only way to get it is an undocumented web request using your login credentials, and Fuel Gauge deliberately doesn't do network calls. If Anthropic adds it to the statusline, it'll show up here.
+**No per-model weekly bar.** `/usage` shows Max users a per-model figure that Claude Code does not put in the status line data, and the only other way to it is a web request with your login credentials — which Fuel Gauge will not make. If Anthropic adds it to the status line, it will show up here.
 
-**Usage can be missing entirely.** The limit fields are only sent on subscription plans, only after the first response, and there are upstream reports of them missing on some account types. Fuel Gauge hides the display instead of showing 0.
+**Usage can be missing.** The limit numbers arrive only on subscription plans, and only after the session's first response. Fuel Gauge hides the display rather than show a false 0%.
 
-**Status bar stays empty in an untrusted folder.** Claude Code only runs the statusline command after you've accepted its workspace-trust prompt. Until then it shows "statusline skipped · restart to fix" and Fuel Gauge has no data to show. Trust the folder and restart the session.
+**Empty in an untrusted folder.** Claude Code runs the status line command only after you accept its workspace-trust prompt. Trust the folder and restart the session.
 
-**Status bar stops updating on macOS (rare).** Claude Code has had an upstream bug where the statusline command can silently stop firing on macOS ([#32660](https://github.com/anthropics/claude-code/issues/32660)). When it happens, Fuel Gauge shows a stale percentage or stays at 0%. Restarting the Claude Code session fixes it.
+**Stale numbers on macOS (rare).** An upstream Claude Code bug ([#32660](https://github.com/anthropics/claude-code/issues/32660)) can silently stop the status line firing. Restarting the Claude Code session fixes it.
 
-**Workspace matching.** Fuel Gauge shows context for the Claude Code session whose project directory matches the open VS Code workspace. If you launch Claude Code from a different directory than the one open in VS Code, it won't pick it up — by design, since the status bar belongs to the workspace.
+**Workspace matching.** The gauge follows the session started in the folder your window has open. A session launched from a different directory is not shown — by design, since the status bar belongs to the workspace.
 
-**Icon differences across editors.** In VS Code the status bar shows a Claude icon next to a dashboard gauge. In forks like Antigravity that lack newer codicons, only the gauge appears. Functionality is identical.
+**Icons in forks.** Editors without the newer codicons (Antigravity, for one) show only the gauge icon, not the Claude icon next to it. Everything works the same.
 
 ## Questions, bugs and ideas
 
@@ -172,44 +160,32 @@ If you would rather not use GitHub — or you want to talk about something that 
 
 ## Privacy
 
-No API calls, no telemetry, no runtime dependencies, no account. Everything runs locally on Claude Code's own statusline data, including the usage numbers. The files Fuel Gauge reads and writes are listed in full under [Everything stays on your machine](#everything-stays-on-your-machine), and in [SECURITY.md](SECURITY.md).
+No API calls, no telemetry, no runtime dependencies, no account. Everything runs locally on Claude Code's own statusline data, including the usage numbers. This is the complete list of what Fuel Gauge reads and writes:
+
+| File or folder | What Fuel Gauge does with it |
+| --- | --- |
+| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`, and only after you agree to it. Every other setting is left as it was. |
+| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first. |
+| `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. |
+| Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file, to find out whether your plan's prompt cache lasts five minutes or an hour. Two token counters are used. Nothing is written there, and no message text is read. |
+| VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. |
+
+Nothing else is read, nothing else is written, and nothing leaves the machine. The same list is in [SECURITY.md](SECURITY.md), together with how to report a vulnerability privately.
 
 ## Not affiliated with Anthropic
 
 This is a community tool. Not made by, endorsed by, or affiliated with Anthropic.
 
-## Version History
+## Version history
 
-**v0.9.1** — Two fixes and three smaller changes.
+**v0.9.1** — The cache countdown now reads your plan's cache lifetime from Claude Code's own record instead of inferring it from token behaviour, which ends the false `expired` some sessions saw. After `/compact`, the gauge holds its last reading as `~42%` instead of dropping to a green 0%. Each of the four items can be hidden on its own from the status bar's right-click menu. The cache hover names the clock time the cache expires. And the gauge hides itself in windows with no matching session.
 
-**The cache countdown now reads your cache lifetime instead of guessing it.** Earlier versions worked out whether your plan uses a five-minute or a one-hour prompt cache by watching token counts: a cache that survived a long idle gap meant an hour, and a cache miss after a six-minute gap meant five minutes. The second rule was wrong. A cache miss after a short gap usually means something earlier in the conversation changed and invalidated the cache, not that the cache expired — and because the answer was saved for the whole account, one bad guess put every window on a five-minute countdown and showed `expired` beside sessions that were very much alive. Claude Code writes down which cache it asked for on every turn, so Fuel Gauge now reads that instead of inferring it. The reading is exact, it corrects itself on the next update, and there is nothing for you to change. If that record cannot be read — an older Claude Code that does not say where the transcript is, a file that is not readable — Fuel Gauge falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` still overrides everything.
+**v0.9.0** — The context percentage is now exactly the one Claude Code reports — the same number `/context` gives you. Earlier versions applied a correction that read a few points too high, so your percentage drops a little on upgrade; nothing about your session changed. Fuel Gauge also now asks before taking the status line slot, saves what was there, and adds **Restore Previous Status Line**, **Show Diagnostics** and the `fuel-gauge.manageStatusLine` setting.
 
-**No more green 0% straight after `/compact`.** Claude Code hands the status line an empty context window for the moment between a compact finishing and your next message — nothing is wrong, it simply has no number yet ([claude-code#86785](https://github.com/anthropics/claude-code/issues/86785)). Fuel Gauge used to show that as `0%` in green, which is the most reassuring thing it can say at the exact moment you look to check whether the compact worked. The window is not empty at that point — it holds the summary and your CLAUDE.md — so the gauge now keeps the last number it had, writes it with a tilde (`~42%`) and drops the colour, and the hover explains that the reading updates on your next turn.
+**v0.8.x** — The model·effort indicator and the usage limits display: session and weekly numbers in the hover, and the alert dot when a limit runs hot.
 
-**Each item can now be hidden on its own.** The four items are named in VS Code's status bar right-click menu — Fuel Gauge: context, cache countdown, model and effort, usage alert — so you can switch off the ones you do not want and VS Code remembers.
+**v0.6.x** — The cache countdown: the `M:SS` item with its urgency colours, the optional audio warning, and the detected lifetime remembered across sessions.
 
-**The cache hover says "expires at 01:22 PM".** The bar shows how long the cache has left (`59:19`) and the hover shows when it runs out. Both used to be printed as `NN:NN`, so they read as two countdowns that disagreed. The hover now names the clock time in your system's format, the same way the usage reset times are shown.
+**v0.5.0** — Renamed from BrainDrain CC to Claude Code Fuel Gauge.
 
-**The gauge hides itself when there is nothing to measure.** When no Claude Code session belongs to the folder you have open, earlier versions showed `0%` — which reads as a real measurement of an empty context window, when in fact there is nothing to measure. All four items now disappear instead, and come back on their own when a session starts in that folder. If a window is empty and you expected it not to be, run **Claude Code Fuel Gauge: Show Diagnostics**: it names the folder the window has open and says whether any session matches it. Claude Code sessions are matched by the folder they were started in, which is the usual reason.
-
-**v0.9.0** — Two changes.
-
-**The context percentage now matches Claude Code exactly.** Earlier versions worked the percentage out themselves: they counted output tokens as well as input tokens, and they subtracted an estimated 18,000 tokens of system overhead from the size of the window, on the assumption that the system prompt, the tool definitions and CLAUDE.md were invisible to the status line. Those tokens are not invisible — Claude Code counts them in the figures it already sends — so the correction was inflating the reading. Fuel Gauge now displays the number Claude Code sends, unchanged, which is the same number you get from `/context`.
-
-**What you will notice: your percentage drops.** On a 200,000-token context window it falls by about 9% of the number you see today, so a gauge reading 68% will read about 62%. On a 1,000,000-token window it falls by about 2%. Nothing about your session has changed — the gauge had been overstating and has stopped. The colours move with it: red at 80% now means you are genuinely 80% full, where before it lit up at a true fill of around 72%. The `fuel-gauge.systemOverhead` setting is deprecated and you can delete it from your settings; if you leave a value there it applies only in the rare case where Claude Code sends no percentage at all.
-
-**Fuel Gauge no longer takes Claude Code's status line without asking.** Earlier versions overwrote `statusLine.command` in `~/.claude/settings.json` on every activation, silently destroying a custom status line if you had one. Now Fuel Gauge asks first, saves your command, and adds **Restore Previous Status Line** to put it back — plus **Show Diagnostics** for when the gauge is dark, and `fuel-gauge.manageStatusLine` to keep it away from your settings entirely. It also stops rewriting a `settings.json` it cannot parse, preserves other keys in the `statusLine` object, and copies a hand-edited bridge script aside before replacing it. If a previous version destroyed your status line, I'm sorry — there was no backup taken then, so there is nothing I can restore for you now. Upgrading is a no-op if you already had Fuel Gauge working.
-
-**v0.8.1** — Documentation only. Restores the Marketplace badges at the top of this page: shields.io retired its Visual Studio Marketplace badge service in April 2026, so they had been rendering as "retired". No code changes from v0.8.0.
-
-**v0.8.0** — Two new readouts. A **model·effort indicator** (`opus·x-high`, colored by effort, gold at `max`) so you always know which brain each session is running — and can dial effort down when it's overkill. And a **usage meter**: your session (5-hour) and weekly limits in the hover tooltip with reset times, plus an alert dot that lights up in the bar (yellow ≥70%, red ≥90%) when you're running hot. Both ride the same local statusline feed — no network calls. `fuel-gauge.effortStyle` and `fuel-gauge.showUsage` control them.
-
-**v0.6.3** — Persists the detected cache TTL to `~/.claude/fuel-gauge/account_ttl.json` so new sessions inherit the 1h (or 5m) value without re-detecting each time. Later downgrade events (a cache miss across a 6–55 min gap) update the persisted value automatically. Avoids the "every new session starts at 5 minutes" feel for Max users.
-
-**v0.6.2** — Optional audio warning: when the cache countdown drops below `fuel-gauge.cacheWarningSeconds` (default off), Fuel Gauge plays 3 short beeps. macOS only. Fires once per cache cycle, not on every tick.
-
-**v0.6.1** — Adds a prompt-cache countdown in a second status bar item. Shows time until cache expiry in `M:SS`, color-coded for urgency (yellow under 60s, red under 15s). Auto-detects 5-minute vs 1-hour TTL from observed cache behavior; the `fuel-gauge.cacheTTL` setting overrides detection.
-
-**v0.5.0** — Renamed from BrainDrain CC to Claude Code Fuel Gauge. New dashboard gauge icon, new screenshots, improved Marketplace discoverability.
-
-Previously released as BrainDrain CC (v0.1.0–v0.4.4).
+The full change-by-change record is in [CHANGELOG.md](CHANGELOG.md). Previously released as BrainDrain CC (v0.1.0–v0.4.4).
