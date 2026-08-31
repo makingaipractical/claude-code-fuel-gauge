@@ -21,10 +21,10 @@ The complete list of every file it reads and writes — there are five, all unde
 
 Anthropic keeps the front of your conversation warm in a prompt cache, for five minutes or an hour depending on your plan. While it is warm, your next message reuses it. Let it go cold and the whole conversation is read again from the start: the next turn is slower, and on API billing it costs more.
 
-Fuel Gauge shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `34%` context sits in green next to an `expired` cache in red.
+Fuel Gauge shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `10%` context sits in green next to an `expired` cache in red — and the amber dot on the right is the usage alert, lit because a usage limit crossed 70%.
 
 <p align="center">
-  <img src="images/cache-expired.png" width="300" alt="Status bar showing 34% context in green next to an expired cache countdown in red, and opus·x-high — the cache carries its own color">
+  <img src="images/cache-expired.png" width="300" alt="Status bar showing 10% context in green, an expired cache countdown in red with a circle-slash icon, the model-effort indicator fable·x-high, and the amber usage alert dot">
 </p>
 
 - **Counting down** — `M:SS`, inherits the context colour while there is comfortable time left
