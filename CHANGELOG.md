@@ -4,6 +4,7 @@ All notable changes to Claude Code Fuel Gauge.
 
 ## Unreleased — v0.9.2
 
+- When Claude Code reports a context window smaller than the tokens already in the session, the percentage is shown uncoloured with a warning glyph and a hover saying the window it reported cannot be true ([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). The number is left exactly as Claude Code gave it: Anthropic's own indicator clamps an impossible reading to 100%, Fuel Gauge flags it, because a confident wrong number is worse than a visibly unreliable one.
 - A fifth status bar item says **wrong folder**, in red, when Claude is started from a terminal in this window in a folder the window does not have open. A start in a subfolder, or in any root of a multi-root workspace, is ordinary and says nothing. Nothing is changed for you: the item reads and warns.
 
 ## v0.9.1 — 2026-08-31

@@ -12,6 +12,10 @@ interface ContextStatus {
   /** The reading is the last known one, not a current measurement — see the
    *  post-/compact case in the bridge. */
   context_unknown?: boolean;
+  /** Claude Code reported a context window smaller than the tokens in it, or a
+   *  percentage above 100. The number is shown as it came, uncoloured — see the
+   *  bridge's plausibility check. */
+  window_implausible?: boolean;
   total_input_tokens: number;
   total_output_tokens: number;
   context_window_size: number;
@@ -226,6 +230,28 @@ if (inp + out + cache_create + cache_read) == 0 and total_in_now == 0 and prev_u
     remaining_pct = max(0.0, 100.0 - used_pct)
     context_unknown = True
 
+# Window-size plausibility (#3070). Claude Code sometimes reports a
+# context_window_size smaller than the tokens already in the session
+# (anthropics/claude-code#63447). Since v0.9.0 used_percentage is passed
+# straight through, so the gauge showed a confident 138% in red rather than
+# admitting the window it was given makes no sense. Anthropic's own indicator
+# clamps — Math.min(used/window*100, 100) in Claude Code 2.1.269 — which turns a
+# broken reading into a plausible-looking full tank. We flag instead and never
+# clamp: a confident wrong number is worse than a visibly unreliable one.
+window_implausible = False
+if window_size > 0 and total_in_now > window_size:
+    window_implausible = True
+if used_pct > 100:
+    window_implausible = True
+# Free cross-check the payload already carries. Valid only when the flag is
+# actually present and true; when Claude Code omits it, it says nothing either
+# way, and a window genuinely larger than 200k is normal (1M is GA).
+exceeds_200k = data.get('exceeds_200k_tokens')
+if exceeds_200k is None:
+    exceeds_200k = cw.get('exceeds_200k_tokens')
+if exceeds_200k is True and 0 < window_size <= 200000:
+    window_implausible = True
+
 # Nothing about reading someone else's file may stop the gauge. Whatever shape
 # a future transcript takes, the worst it can do here is leave the TTL unknown,
 # and everything below knows what to do with that.
@@ -319,6 +345,7 @@ output = {
     'used_percentage': used_pct,
     'remaining_percentage': remaining_pct,
     'context_unknown': context_unknown,
+    'window_implausible': window_implausible,
     'total_input_tokens': total_in_now,
     'total_output_tokens': cw.get('total_output_tokens', 0),
     'context_window_size': window_size,
@@ -1720,15 +1747,31 @@ function renderStatus() {
   // It shows with a tilde and no colour, because colouring it would state a
   // confidence we do not have.
   const contextUnknown = data.context_unknown === true;
-  const contextColor = (fileAbandoned || contextUnknown) ? undefined : severityColor(contextSeverity);
+  // Claude Code reported a window smaller than the tokens in it (#3070). The
+  // number is left exactly as it came — clamping it to 100 would hand back a
+  // confident full tank — but it loses its colour and the hover says why.
+  const windowImplausible = data.window_implausible === true;
+  const contextColor = (fileAbandoned || contextUnknown || windowImplausible)
+    ? undefined
+    : severityColor(contextSeverity);
   const contextLine = contextUnknown
     ? 'Context reading paused: Claude Code reports an empty window right after /compact. ' +
       'The number updates on your next turn.'
-    : `Context&nbsp;${pct}%`;
+    : windowImplausible
+      ? `Context&nbsp;${pct}% — unreliable. Claude Code reports a context window of ` +
+        `${data.context_window_size.toLocaleString()} tokens holding ` +
+        `${(data.total_input_tokens ?? 0).toLocaleString()}, which cannot be true ` +
+        `([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). ` +
+        'The percentage is shown as Claude Code gave it, not corrected.'
+      : `Context&nbsp;${pct}%`;
 
   // Main item: context percentage only. The cache countdown is a separate item
   // (below) so it can carry its own urgency color independent of context.
-  statusBarItem.text = `$(claude)$(dashboard) ${contextUnknown ? '~' : ''}${pct}%`;
+  statusBarItem.text = contextUnknown
+    ? `$(claude)$(dashboard) ~${pct}%`
+    : windowImplausible
+      ? `$(claude)$(dashboard) ${pct}% $(warning)`
+      : `$(claude)$(dashboard) ${pct}%`;
   statusBarItem.color = contextColor;
 
   // Cache state — only meaningful if bridge has populated last_api_call_ts.

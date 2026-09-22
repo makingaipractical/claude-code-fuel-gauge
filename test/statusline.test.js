@@ -1213,6 +1213,124 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 27. A WINDOW SMALLER THAN THE TOKENS IN IT (#3070). Claude Code sometimes
+  //     reports a context_window_size below the session's own token count
+  //     (claude-code#63447). Since v0.9.0 the percentage is passed straight
+  //     through, so the gauge stated 138% in confident red. The bridge must
+  //     mark the reading unreliable — and must not quietly clamp it to 100,
+  //     which is what Anthropic's own indicator does.
+  await run('bridge-implausible-window', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({
+        session_id: 'too-small', cwd: '/w', workspace: { project_dir: '/w' },
+        context_window: {
+          context_window_size: 200000, total_input_tokens: 276000,
+          used_percentage: 138,
+          current_usage: { input_tokens: 6000, output_tokens: 100,
+            cache_creation_input_tokens: 20000, cache_read_input_tokens: 250000 },
+        },
+      }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const wrote = JSON.parse(fs.readFileSync(path.join(fgDir, 'too-small.json'), 'utf-8'));
+    check('the bridge marks the reading unreliable', wrote.window_implausible === true,
+      String(wrote.window_implausible));
+    check('and does not clamp the percentage to 100', wrote.used_percentage === 138,
+      String(wrote.used_percentage));
+
+    // An ordinary session must stay unflagged, or the flag means nothing.
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({
+        session_id: 'ordinary', cwd: '/w', workspace: { project_dir: '/w' },
+        context_window: {
+          context_window_size: 200000, total_input_tokens: 60000, used_percentage: 30,
+          current_usage: { input_tokens: 10000, output_tokens: 100,
+            cache_creation_input_tokens: 5000, cache_read_input_tokens: 45000 },
+        },
+      }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const ok = JSON.parse(fs.readFileSync(path.join(fgDir, 'ordinary.json'), 'utf-8'));
+    check('an ordinary reading is not flagged', ok.window_implausible === false,
+      String(ok.window_implausible));
+
+    // exceeds_200k_tokens is only evidence against a window reported at or
+    // below 200k. A 1M window past 200k is ordinary — 1M is generally
+    // available — and flagging it would fire on every long session Julian runs.
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({
+        session_id: 'big-window', cwd: '/w', workspace: { project_dir: '/w' },
+        exceeds_200k_tokens: true,
+        context_window: {
+          context_window_size: 1000000, total_input_tokens: 300000, used_percentage: 30,
+          current_usage: { input_tokens: 10000, output_tokens: 100,
+            cache_creation_input_tokens: 5000, cache_read_input_tokens: 285000 },
+        },
+      }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const big = JSON.parse(fs.readFileSync(path.join(fgDir, 'big-window.json'), 'utf-8'));
+    check('a 1M window past 200k is not flagged', big.window_implausible === false,
+      String(big.window_implausible));
+
+    // The same flag against a 200k window is the cross-check doing its job.
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({
+        session_id: 'flag-vs-200k', cwd: '/w', workspace: { project_dir: '/w' },
+        exceeds_200k_tokens: true,
+        context_window: {
+          context_window_size: 200000, total_input_tokens: 150000, used_percentage: 75,
+          current_usage: { input_tokens: 10000, output_tokens: 100,
+            cache_creation_input_tokens: 5000, cache_read_input_tokens: 135000 },
+        },
+      }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const xcheck = JSON.parse(fs.readFileSync(path.join(fgDir, 'flag-vs-200k.json'), 'utf-8'));
+    check('a session past 200k in a 200k window is flagged by the cross-check',
+      xcheck.window_implausible === true, String(xcheck.window_implausible));
+  });
+
+  // 28. THE UNRELIABLE READING, RENDERED. Uncoloured, with the number left
+  //     exactly as Claude Code gave it and a hover that says why.
+  await run('render-implausible-window', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'bad.json'), JSON.stringify({
+      cwd: ws, project_dir: ws, used_percentage: 138, remaining_percentage: 0,
+      context_unknown: false, window_implausible: true,
+      total_input_tokens: 276000, total_output_tokens: 100,
+      context_window_size: 200000, model: 'claude-opus-5', session_id: 'bad',
+      timestamp: Date.now() / 1000, detected_ttl: 3600, last_api_call_ts: 0,
+      rate_limit_5h_pct: -1, rate_limit_7d_pct: -1, effort_level: 'high',
+    }, null, 2));
+
+    ext.activate(ctx());
+    const context = barAt(100);
+    check('the number is shown as Claude Code gave it, not clamped',
+      context.text.includes('138%'), context.text);
+    check('marked with a warning glyph', context.text.includes('$(warning)'), context.text);
+    check('and carries no colour at all', context.color === undefined,
+      context.color && context.color.id);
+    const tip = String(context.tooltip && context.tooltip.value);
+    check('the hover calls the reading unreliable', tip.includes('unreliable'), tip);
+    check('naming the window Claude Code reported', tip.includes('200,000'), tip);
+    check('and the tokens it says are in it', tip.includes('276,000'), tip);
+    check('and pointing at the upstream bug', tip.includes('63447'), tip);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
