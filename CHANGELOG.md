@@ -2,6 +2,10 @@
 
 All notable changes to Claude Code Fuel Gauge.
 
+## Unreleased — v0.9.2
+
+- A fifth status bar item says **wrong folder**, in red, when Claude is started from a terminal in this window in a folder the window does not have open. A start in a subfolder, or in any root of a multi-root workspace, is ordinary and says nothing. Nothing is changed for you: the item reads and warns.
+
 ## v0.9.1 — 2026-08-31
 
 - The cache countdown now reads your plan's cache lifetime (5 minutes or 1 hour) from Claude Code's own session record instead of inferring it from token behaviour. The reading is exact and corrects itself on the next update; `fuel-gauge.cacheTTL` still overrides it. This ends the false `expired` some sessions saw.

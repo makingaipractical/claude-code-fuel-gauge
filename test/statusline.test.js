@@ -11,6 +11,7 @@ const EXT_DIR = path.resolve(__dirname, '..');
 const OUT = path.join(EXT_DIR, 'out', 'extension.js');
 
 let TMPROOT, answers, messages, settingsPath, globalStorage, configStore, bars, configListeners, outputLines;
+let shellStartListeners, shellEndListeners, folderChangeListeners;
 
 function makeVscode() {
   const cfg = {
@@ -53,10 +54,15 @@ function makeVscode() {
       onDidChangeActiveTerminal: () => ({ dispose() {} }),
       terminals: [],
       activeTerminal: undefined,
+      // Shell Integration API (VS Code 1.93+). Present so the extension's
+      // feature detection succeeds and a scenario can fire a `claude` start.
+      onDidStartTerminalShellExecution: (fn) => { shellStartListeners.push(fn); return { dispose() {} }; },
+      onDidEndTerminalShellExecution: (fn) => { shellEndListeners.push(fn); return { dispose() {} }; },
     },
     workspace: {
       getConfiguration: () => cfg,
       onDidChangeConfiguration: (fn) => { configListeners.push(fn); return { dispose() {} }; },
+      onDidChangeWorkspaceFolders: (fn) => { folderChangeListeners.push(fn); return { dispose() {} }; },
       workspaceFolders: [],
       fs: {},
     },
@@ -108,6 +114,9 @@ function freshSandbox(name) {
   bars = [];
   configListeners = [];
   outputLines = [];
+  shellStartListeners = [];
+  shellEndListeners = [];
+  folderChangeListeners = [];
   global.__vscode = makeVscode();
   delete require.cache[OUT];
 }
@@ -131,6 +140,18 @@ const barAt = (priority) => bars.find((b) => b.priority === priority);
 // the poll interval to see a change take effect.
 const fireConfigChange = () =>
   configListeners.forEach((fn) => fn({ affectsConfiguration: () => true }));
+
+// A `claude` command starting in a terminal of this window, with the terminal's
+// shell-integration cwd set. Returns the event so a scenario can end it again.
+const fireClaudeStart = (cwd, commandLine = 'claude') => {
+  const event = {
+    terminal: { shellIntegration: { cwd: { fsPath: cwd, path: cwd } } },
+    execution: { commandLine: { value: commandLine } },
+  };
+  shellStartListeners.forEach((fn) => fn(event));
+  return event;
+};
+const fireExecutionEnd = (event) => shellEndListeners.forEach((fn) => fn(event));
 
 let pass = 0, fail = 0;
 function check(label, cond, detail) {
@@ -1088,6 +1109,108 @@ async function run(name, fn) {
     check('treating null as no overhead at all',
       fs.existsSync(f) && JSON.parse(fs.readFileSync(f, 'utf-8')).used_percentage === 50,
       fs.existsSync(f) ? String(JSON.parse(fs.readFileSync(f, 'utf-8')).used_percentage) : 'no file');
+  });
+
+  // 24. THE WRONG FOLDER, SAID OUT LOUD (#3013). A `claude` started in a
+  //     terminal whose directory this window does not have open used to be
+  //     dropped in silence — the extension returned from the listener and the
+  //     window simply showed no gauge, which is exactly how Metaconductor
+  //     #3008 happened. It must now say so in red.
+  await run('wrong-folder-warns', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    const other = path.join(TMPROOT, 'other-project');
+    fs.mkdirSync(ws, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+
+    ext.activate(ctx());
+    check('nothing is said before a session starts', !barAt(96) || barAt(96).visible === false);
+
+    const event = fireClaudeStart(other);
+    const warn = barAt(96);
+    check('the wrong-folder item exists', !!warn);
+    check('and is visible once Claude starts in a folder this window has not open',
+      !!warn && warn.visible === true);
+    check('it reads as a warning', !!warn && warn.text === '$(warning) wrong folder',
+      warn && warn.text);
+    check('in red', !!warn && warn.color && warn.color.id === 'charts.red',
+      warn && warn.color && warn.color.id);
+    check('it carries a name so it can be hidden from the status bar menu',
+      !!warn && warn.name === 'Fuel Gauge: wrong folder', warn && warn.name);
+    check('and an id of its own', !!warn && warn.id === 'fuel-gauge.wrongFolder',
+      warn && warn.id);
+    const tip = String(warn && warn.tooltip && warn.tooltip.value);
+    check('the hover names the folder Claude is actually in', tip.includes(other), tip);
+    check('and the folder this window has open', tip.includes(ws), tip);
+    check('and says nothing was changed', tip.includes('Nothing has been changed'), tip);
+
+    fireExecutionEnd(event);
+    check('the warning goes when that session ends', !barAt(96) || barAt(96).visible === false);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 25. AND STAYS QUIET WHEN THE MISMATCH IS ORDINARY. A start in a subfolder
+  //     is how most people work, and in a multi-root workspace every open
+  //     folder is the right folder. A warning that fires on either is noise
+  //     Julian learns to ignore, which costs more than not having it.
+  await run('wrong-folder-quiet-when-legitimate', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    const sub = path.join(ws, 'src', 'deep');
+    const second = path.join(TMPROOT, 'second-root');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.mkdirSync(second, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [
+      { uri: { fsPath: ws, path: ws } },
+      { uri: { fsPath: second, path: second } },
+    ];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+
+    fireClaudeStart(ws);
+    check('a start in the workspace folder itself says nothing', !barAt(96) || barAt(96).visible === false);
+    fireClaudeStart(sub);
+    check('a start in a subfolder says nothing', !barAt(96) || barAt(96).visible === false);
+    fireClaudeStart(second);
+    check('a start in the second root of a multi-root workspace says nothing',
+      !barAt(96) || barAt(96).visible === false);
+    // A sibling of the workspace folder is not a subfolder of it, whatever the
+    // string prefix suggests: /work-notes must not pass as inside /work.
+    fireClaudeStart(ws + '-notes');
+    check('a sibling whose name merely starts the same way does warn',
+      !!barAt(96) && barAt(96).visible === true);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 26. A START IN A PARENT OF THE WORKSPACE. Claude can reach the workspace
+  //     from there, so this is not the same mistake — but it is running over a
+  //     wider tree than the window shows, and the hover has to say which case
+  //     it is or the user cannot tell what to do about it.
+  await run('wrong-folder-parent-start', async (ext) => {
+    const parent = path.join(TMPROOT, 'projects');
+    const ws = path.join(parent, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+
+    // A session file for the parent folder, so the hover can name it.
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'wide.json'), JSON.stringify({
+      cwd: parent, project_dir: parent, used_percentage: 12, remaining_percentage: 88,
+      total_input_tokens: 1000, total_output_tokens: 10, context_window_size: 200000,
+      model: 'claude-opus-5', session_id: 'wide', timestamp: Date.now() / 1000,
+    }, null, 2));
+
+    ext.activate(ctx());
+    fireClaudeStart(parent);
+    const warn = barAt(96);
+    check('a start in a parent of the workspace warns', !!warn && warn.visible === true);
+    const tip = String(warn && warn.tooltip && warn.tooltip.value);
+    check('and the hover says it is a wider tree, not a different folder',
+      tip.includes('wider tree'), tip);
+    check('naming the session writing for that folder', tip.includes('wide'), tip);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

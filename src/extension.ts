@@ -344,6 +344,13 @@ let statusBarItem: vscode.StatusBarItem;
 let cacheStatusBarItem: vscode.StatusBarItem;
 let effortStatusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
+let wrongFolderItem: vscode.StatusBarItem | undefined;
+/** A `claude` this window's own terminal started outside the folders the window
+ *  has open. Set by the shell-integration listener, cleared when that execution
+ *  ends, the terminal closes, or the folder joins the workspace. */
+let wrongFolderStart:
+  | { dir: string; relation: FolderRelation; terminal: vscode.Terminal; execution: unknown }
+  | undefined;
 let pollTimer: NodeJS.Timeout | undefined;
 let countdownTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
@@ -429,27 +436,63 @@ function clearTracking() {
   releaseTracking();
 }
 
+/** Every folder open in this window. Multi-root workspaces have more than one,
+ *  and a session started in any of them is in the right place. */
+function workspaceFolderPaths(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+}
+
+function isUnder(child: string, parent: string): boolean {
+  return child === parent || child.startsWith(parent + path.sep);
+}
+
+/** Where a directory sits relative to the folders open in this window.
+ *  - `inside`   — it is a workspace folder, or a subfolder of one. A session
+ *                 started in a subfolder is ordinary and must never warn.
+ *  - `contains` — it is a parent of a workspace folder. Claude can reach the
+ *                 workspace, but it is running over a wider tree than the
+ *                 window shows, which is worth saying once.
+ *  - `elsewhere`— unrelated to every open folder. This is the #3008 case: the
+ *                 terminal kept the previous project's directory.
+ */
+type FolderRelation = 'inside' | 'contains' | 'elsewhere';
+
+function classifyAgainstWorkspace(dir: string, folders: string[]): FolderRelation {
+  if (folders.some((f) => isUnder(dir, f))) { return 'inside'; }
+  if (folders.some((f) => isUnder(f, dir))) { return 'contains'; }
+  return 'elsewhere';
+}
+
 function setupTerminalTracking(context: vscode.ExtensionContext) {
   // Feature-detect: Shell Integration API requires VS Code 1.93+
   if (!('onDidStartTerminalShellExecution' in vscode.window)) {
     return;
   }
 
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  const workspaceRoot = workspaceFolders?.[0]?.uri.fsPath;
-
   context.subscriptions.push(
     vscode.window.onDidStartTerminalShellExecution((event) => {
       const commandLine = event.execution.commandLine.value;
       if (!isClaudeCommand(commandLine)) { return; }
 
-      // If we have a workspace, check terminal cwd matches
-      if (workspaceRoot && event.terminal.shellIntegration?.cwd) {
-        const terminalCwd = event.terminal.shellIntegration.cwd.fsPath;
-        if (terminalCwd !== workspaceRoot && !terminalCwd.startsWith(workspaceRoot + '/')) {
+      // Read the folders now, not at activation: a multi-root workspace can
+      // gain or lose a folder while the window is open.
+      const folders = workspaceFolderPaths();
+      const terminalCwd = event.terminal.shellIntegration?.cwd?.fsPath;
+
+      if (folders.length > 0 && terminalCwd) {
+        const relation = classifyAgainstWorkspace(terminalCwd, folders);
+        if (relation !== 'inside') {
+          // Claude is starting somewhere this window does not show. We do not
+          // track it — its readings are not this window's — but silence is how
+          // #3008 happened, so say it in the status bar instead of returning.
+          wrongFolderStart = { dir: terminalCwd, relation, terminal: event.terminal, execution: event.execution };
+          renderStatus();
           return;
         }
       }
+
+      // A start in the right place clears any standing warning.
+      wrongFolderStart = undefined;
 
       // Clean up previous tracking (handles missed onDidEnd events from /exit)
       clearTracking();
@@ -463,6 +506,10 @@ function setupTerminalTracking(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.window.onDidEndTerminalShellExecution((event) => {
+      if (wrongFolderStart && event.execution === wrongFolderStart.execution) {
+        wrongFolderStart = undefined;
+        renderStatus();
+      }
       if (trackedExecution && event.execution === trackedExecution) {
         clearTracking();
       }
@@ -471,11 +518,87 @@ function setupTerminalTracking(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.window.onDidCloseTerminal((terminal) => {
+      if (wrongFolderStart && terminal === wrongFolderStart.terminal) {
+        wrongFolderStart = undefined;
+        renderStatus();
+      }
       if (trackedTerminal && terminal === trackedTerminal) {
         clearTracking();
       }
     })
   );
+
+  // A folder added to a multi-root workspace can make a standing warning wrong.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (wrongFolderStart &&
+          classifyAgainstWorkspace(wrongFolderStart.dir, workspaceFolderPaths()) === 'inside') {
+        wrongFolderStart = undefined;
+      }
+      renderStatus();
+    })
+  );
+}
+
+/** The warning only ever fires for a `claude` this window's own terminal
+ *  started. Attribution matters more than it looks: session files carry no
+ *  window identity, so a scan of ~/.claude/fuel-gauge alone would have every
+ *  window without a session of its own warn about every other window's
+ *  session. The terminal event is the only thing that ties a start to a window.
+ *  Session files are then read for the detail — the session id, and whether the
+ *  bridge has written anything for that folder yet. */
+function findSessionForDir(dir: string): ContextStatus | undefined {
+  const fuelGaugeDir = path.join(os.homedir(), '.claude', 'fuel-gauge');
+  if (!fs.existsSync(fuelGaugeDir)) { return undefined; }
+  let best: ContextStatus | undefined;
+  for (const file of listSessionFiles(fuelGaugeDir)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(fuelGaugeDir, file), 'utf-8')) as ContextStatus;
+      const sessionDir = data.project_dir || data.cwd;
+      if (!sessionDir || !isUnder(dir, sessionDir)) { continue; }
+      if (!best || data.timestamp > best.timestamp) { best = data; }
+    } catch { /* a half-written file heals on the next status line update */ }
+  }
+  return best;
+}
+
+function renderWrongFolder() {
+  if (!wrongFolderItem) { return; }
+  if (!wrongFolderStart) {
+    wrongFolderItem.hide();
+    return;
+  }
+
+  const { dir, relation } = wrongFolderStart;
+  const folders = workspaceFolderPaths();
+  const session = findSessionForDir(dir);
+
+  const tip = new vscode.MarkdownString(undefined, true);
+  tip.appendMarkdown(
+    relation === 'contains'
+      ? '**Claude is running over a wider tree than this window shows.**\n\n'
+      : '**Claude is running in a folder this window does not have open.**\n\n'
+  );
+  tip.appendMarkdown(`Claude started in: \`${dir}\`\n\n`);
+  tip.appendMarkdown(
+    folders.length === 1
+      ? `This window has open: \`${folders[0]}\`\n\n`
+      : `This window has open:\n${folders.map((f) => `- \`${f}\``).join('\n')}\n\n`
+  );
+  if (session) {
+    tip.appendMarkdown(`Session \`${session.session_id}\` is writing for that folder.\n\n`);
+  } else {
+    tip.appendMarkdown('No session file for that folder yet.\n\n');
+  }
+  tip.appendMarkdown(
+    'Nothing has been changed for you. Quit that session and start Claude from the ' +
+    'folder this window has open, or open the folder Claude is working in.'
+  );
+
+  wrongFolderItem.text = '$(warning) wrong folder';
+  wrongFolderItem.color = COLOR_RED;
+  wrongFolderItem.tooltip = tip;
+  wrongFolderItem.show();
 }
 
 function writeBridgeConfig() {
@@ -553,6 +676,14 @@ export function activate(context: vscode.ExtensionContext) {
   );
   usageStatusBarItem.name = 'Fuel Gauge: usage alert';
   context.subscriptions.push(usageStatusBarItem);
+
+  wrongFolderItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.wrongFolder',
+    vscode.StatusBarAlignment.Right,
+    96
+  );
+  wrongFolderItem.name = 'Fuel Gauge: wrong folder';
+  context.subscriptions.push(wrongFolderItem);
 
   startPolling();
   startCountdown();
@@ -1526,6 +1657,10 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): s
 
 function renderStatus() {
   const data = cachedData;
+  // Independent of every other item: the warning is about where Claude was
+  // started, not about the reading, so it stands whether or not this window has
+  // a session of its own.
+  renderWrongFolder();
   const { modelCap, effortCap, effortLevel } = renderModelEffort(data);
 
   // Ultimate file-age safety floor: if the bridge file hasn't updated in over
@@ -1683,4 +1818,6 @@ export function deactivate() {
     clearInterval(cleanupTimer);
   }
   clearTracking();
+  wrongFolderStart = undefined;
+  wrongFolderItem = undefined;
 }
