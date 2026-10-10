@@ -1,11 +1,14 @@
 # Change Log
 
-All notable changes to Claude Code Fuel Gauge.
+All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
 ## Unreleased — v0.9.2
 
-- When Claude Code reports a context window smaller than the tokens already in the session, the percentage is shown uncoloured with a warning glyph and a hover saying the window it reported cannot be true ([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). The number is left exactly as Claude Code gave it: Anthropic's own indicator clamps an impossible reading to 100%, Fuel Gauge flags it, because a confident wrong number is worse than a visibly unreliable one.
+- Renamed from Claude Code Fuel Gauge to **Brain Drain for Claude Code**. Only the name you read changes: the extension id stays `makingaipractical.claude-code-fuel-gauge`, so this arrives as an ordinary update. Your `fuel-gauge.*` settings, the status bar items you have hidden, and the bridge's `~/.claude/fuel-gauge/` folder all carry over untouched. Commands now appear in the Command Palette as **Brain Drain: Show Diagnostics**, **Brain Drain: Connect Status Line** and **Brain Drain: Restore Previous Status Line**.
+- When Claude Code reports a context window smaller than the tokens already in the session, the percentage is shown uncoloured with a warning glyph and a hover saying the window it reported cannot be true ([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). The number is left exactly as Claude Code gave it: Anthropic's own indicator clamps an impossible reading to 100%, Brain Drain flags it, because a confident wrong number is worse than a visibly unreliable one.
 - A fifth status bar item says **wrong folder**, in red, when Claude is started from a terminal in this window in a folder the window does not have open. A start in a subfolder, or in any root of a multi-root workspace, is ordinary and says nothing. Nothing is changed for you: the item reads and warns.
+- The extension manifest now declares its licence, MIT, matching the LICENSE file in the repository.
+- Development tools updated: `@vscode/vsce` 3.9.2 → 4.0.0 and `@types/node` 20 → 26. These are build-time only; the extension still has no runtime dependencies.
 
 ## v0.9.1 — 2026-08-31
 
