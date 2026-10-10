@@ -7,6 +7,8 @@
 
 Brain Drain puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits on Anthropic subscription plans.
 
+**Rather have it in the terminal?** Brain Drain also comes as a [Claude Code mod](https://github.com/makingaipractical/brain-drain-for-claude-code) that draws the same readouts directly under Claude Code's prompt. Use either one, or both side by side.
+
 <p align="center">
   <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Brain Drain: context % and cache countdown in green — 20% in one, 9% in the other — and the model-effort indicator, fable·x-high">
 </p>
@@ -19,7 +21,7 @@ The complete list of every file it reads and writes — there are five, all unde
 
 ## The cache countdown
 
-Anthropic keeps the front of your conversation warm in a prompt cache, for five minutes or an hour depending on your plan. While it is warm, your next message reuses it. Let it go cold and the whole conversation is read again from the start: the next turn is slower, and on API billing it costs more.
+Anthropic keeps the front of your conversation warm in a prompt cache: for an hour on a Claude subscription within its included usage, and for five minutes once you draw on usage credits or use an API key ([Claude Code docs](https://code.claude.com/docs/en/prompt-caching)). While it is warm, your next message reuses it. Let it go cold and the whole conversation is read again from the start: the next turn is slower, and on API billing it costs more.
 
 Brain Drain shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `10%` context sits in green next to an `expired` cache in red — and the amber dot on the right is the usage alert, lit because a usage limit crossed 70%.
 
