@@ -99,7 +99,7 @@
         "fuel-gauge.manageStatusLine": {
           "type": "boolean",
           "default": true,
-          "description": "Let Brain Drain use Claude Code's status line slot in ~/.claude/settings.json. Claude Code allows only one status line command, so turning this off means Brain Drain shows nothing. Your previous command is saved and can be put back with \"Brain Drain: Restore Previous Status Line\"."
+          "description": "Let Brain Drain use Claude Code's status line slot in ~/.claude/settings.json. Claude Code allows only one status line command. Turn this off and Brain Drain stays out of that file; the gauge then shows a warning icon that you can click to connect. Your previous command is saved and can be put back with \"Brain Drain: Restore Previous Status Line\"."
         }
       }
     },

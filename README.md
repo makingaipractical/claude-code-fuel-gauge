@@ -17,7 +17,7 @@ Brain Drain puts four Claude Code readouts in your VS Code status bar: how full 
 
 Brain Drain never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of any kind*. Every number it shows comes from files Claude Code already writes on your own disk.
 
-The complete list of every file it reads and writes — there are five, all under `~/.claude` or VS Code's own storage — is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md).
+The complete list of what it reads and writes is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md): five places, all under `~/.claude` or VS Code's own storage.
 
 ## The cache countdown
 
@@ -37,11 +37,11 @@ Brain Drain shows the time you have left as its own status bar item, with its ow
 
 **How exact it is.** The cache lifetime is read, not guessed. Claude Code records on every turn which cache it asked for, the five-minute one or the one-hour one, and Brain Drain reads the most recent of those entries from the end of the session transcript. That reading is exact, and it corrects itself on the next update. The answer is saved to `~/.claude/fuel-gauge/account_ttl.json`, so a new session's countdown is right from its first second.
 
-The countdown itself starts again from the full lifetime on every status line update, so it tracks the last activity Claude Code reported. If the record cannot be read — an older Claude Code that does not say where the transcript is, or a file that will not open — Brain Drain falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` overrides all of it, if you would rather fix the value yourself.
+The countdown starts again from the full lifetime whenever Claude Code reports a new request to the model. If the record cannot be read — an older Claude Code that does not say where the transcript is, or a file that will not open — Brain Drain falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` overrides all of it, if you would rather fix the value yourself.
 
 ## The other three readouts
 
-Brain Drain shows up to four items, right-aligned, and one shared hover tooltip that breaks everything down.
+Brain Drain shows up to four readouts, right-aligned, plus a warning when Claude runs in the wrong folder, and one shared hover tooltip that breaks everything down.
 
 <p align="center">
   <img src="images/tooltip.png" width="360" alt="The Brain Drain hover tooltip: model and effort in color, then context %, the time the cache expires, and the session and weekly usage limits with reset times">
@@ -52,8 +52,9 @@ Brain Drain shows up to four items, right-aligned, and one shared hover tooltip 
 How full the window is, live from 0% and colour-coded green → yellow → red. It covers `claude` sessions in the integrated terminal, which Claude Code's own indicator does not.
 
 - **Active** — coloured percentage, using your thresholds
-- **Stale** — percentage with a circle-slash icon, no colour (no update for over an hour, a genuinely abandoned session)
+- **Stale** — the percentage with no colour: no update for over an hour, so the session is treated as abandoned. The usage dot is hidden too, because old limit numbers mislead.
 - **Reading paused** — `~42%`, no colour: right after `/compact` Claude Code reports an empty context window until your next turn, so the gauge holds the last number it had and marks it with a tilde rather than dropping to a green 0%
+- **Unreliable** — `NN%` with a warning icon and no colour: Claude Code reported a context window smaller than the tokens already in it, which cannot be true. The number is shown as Claude Code gave it, not corrected; the hover explains.
 - **No session** — the gauge is hidden. It appears when a Claude Code session starts in the folder this window has open
 
 The percentage is exactly the one Claude Code reports. Run `/context` in a session, or read Claude Code's own status line, and you will see the same figure. It will not match the small pie in the VS Code prompt box, or the "Context low" message in the terminal, because those two measure how much room is left before Claude Code compacts your conversation automatically, and they measure it against a smaller window. They answer a different question, so their numbers differ. See [Known issues](#known-issues).
@@ -98,11 +99,12 @@ Works for both the built-in VS Code extension's sessions and `claude` sessions i
 
 ### The status line slot, and what Brain Drain writes
 
-Claude Code allows **one** status line command. Brain Drain needs it, because the 5-hour and
-weekly usage percentages exist nowhere else on your machine — they are not in the session
-transcripts and no hook receives them.
+Claude Code allows **one** status line command, and Brain Drain's bridge needs it: the status
+line is where Claude Code hands the 5-hour and weekly figures to a program outside itself
+([statusline docs](https://code.claude.com/docs/en/statusline)). The Brain Drain mod runs inside
+Claude Code and reads them directly.
 
-So if you already run your own status line (ccstatusline, a powerline script, anything),
+If you already run your own status line (ccstatusline, a powerline script, anything),
 Brain Drain asks before taking the slot, saves what was there, and can put it back:
 
 - **Brain Drain: Restore Previous Status Line** — puts your command back and stops Brain Drain managing the slot.
@@ -136,9 +138,9 @@ The two cannot run at the same time. That is a Claude Code limitation, not a cho
 | `fuel-gauge.cacheWarningSeconds` | `null` (off) | Play 3 short beeps when the cache countdown drops below this many seconds. macOS only. Example: `180` for a 3-minute warning |
 | `fuel-gauge.effortStyle` | `text` | Model·effort item: `text` to show it, `off` to hide it |
 | `fuel-gauge.showUsage` | `true` | Show session/weekly usage in the hover, with the alert dot when a limit is high |
-| `fuel-gauge.manageStatusLine` | `true` | Let Brain Drain use Claude Code's status line slot. Set to `false` to keep it out of `~/.claude/settings.json` entirely — the gauge then shows nothing |
+| `fuel-gauge.manageStatusLine` | `true` | Let Brain Drain use Claude Code's status line slot. Set to `false` to keep Brain Drain out of `~/.claude/settings.json` entirely. The gauge then shows a warning icon that you can click to connect |
 
-To hide one of the four items without hiding the rest, right-click the status bar itself: VS Code lists them as **Brain Drain: context**, **cache countdown**, **model and effort** and **usage alert**, and remembers what you switch off. No setting needed.
+To hide one item without hiding the rest, right-click the status bar. VS Code lists them as **Brain Drain: context**, **cache countdown**, **model and effort**, **usage alert** and **wrong folder**, and remembers what you switch off. No setting needed.
 
 ## Known issues
 
@@ -152,7 +154,7 @@ To hide one of the four items without hiding the rest, right-click the status ba
 
 **Stale numbers on macOS (rare).** An upstream Claude Code bug ([#32660](https://github.com/anthropics/claude-code/issues/32660)) can silently stop the status line firing. Restarting the Claude Code session fixes it.
 
-**Workspace matching.** The gauge follows the session started in the folder your window has open. A session launched from a different directory is not shown — by design, since the status bar belongs to the workspace.
+**Wrong folder.** The gauge follows the session started in the folder this window has open. If you start `claude` from a terminal in this window, in a folder the window does not have open, a red **wrong folder** item appears. Hover it to see where Claude started and which folders the window has open. A start in a subfolder, or in any root of a multi-root workspace, is normal and shows nothing. Brain Drain changes nothing for you: quit that session and start Claude from the window's folder, or open the folder Claude is working in.
 
 **Icons in forks.** Editors without the newer codicons (Antigravity, for one) show only the gauge icon, not the Claude icon next to it. Everything works the same.
 
@@ -168,9 +170,9 @@ No API calls, no telemetry, no runtime dependencies, no account. Everything runs
 
 | File or folder | What Brain Drain does with it |
 | --- | --- |
-| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`, and only after you agree to it. Every other setting is left as it was. |
-| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first. |
-| `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. |
+| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. Every other setting is left as it was. |
+| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first, to `context-bridge.sh.fuel-gauge.orig`. |
+| `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file, to find out whether your plan's prompt cache lasts five minutes or an hour. Two token counters are used. Nothing is written there, and no message text is read. |
 | VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. |
 
@@ -181,6 +183,8 @@ Nothing else is read, nothing else is written, and nothing leaves the machine. T
 This is a community tool. Not made by, endorsed by, or affiliated with Anthropic.
 
 ## Version history
+
+**v0.9.2** — Renamed from Claude Code Fuel Gauge to Brain Drain for Claude Code; the extension id, your `fuel-gauge.*` settings and the `~/.claude/fuel-gauge/` folder are unchanged. A red **wrong folder** item appears when Claude starts in a folder this window does not have open. A context window that Claude Code reports as smaller than the tokens in it is shown with a warning instead of a confident number.
 
 **v0.9.1** — The cache countdown now reads your plan's cache lifetime from Claude Code's own record instead of inferring it from token behaviour, which ends the false `expired` some sessions saw. After `/compact`, the gauge holds its last reading as `~42%` instead of dropping to a green 0%. Each of the four items can be hidden on its own from the status bar's right-click menu. The cache hover names the clock time the cache expires. And the gauge hides itself in windows with no matching session.
 
