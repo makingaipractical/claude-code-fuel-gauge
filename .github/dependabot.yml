@@ -8,3 +8,10 @@ updates:
       all-dependencies:
         patterns:
           - "*"
+    ignore:
+      # Held 10 Oct 2026: TypeScript 7 needs a tsconfig change for no user gain.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Held 10 Oct 2026: newer @types/vscode forces a higher engines.vscode,
+      # which drops users on older VS Code builds and forks.
+      - dependency-name: "@types/vscode"
