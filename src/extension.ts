@@ -34,7 +34,7 @@ interface ContextStatus {
 }
 
 const BRIDGE_SCRIPT = `#!/bin/bash
-# Claude Code Fuel Gauge — Context Bridge
+# Brain Drain for Claude Code — Context Bridge
 # Reads statusline JSON from stdin, writes to ~/.claude/fuel-gauge/{session_id}.json
 
 input=$(cat)
@@ -646,13 +646,13 @@ export function activate(context: vscode.ExtensionContext) {
   const bridge = installBridgeScript();
   if (bridge === 'absent') {
     void vscode.window.showWarningMessage(
-      'Fuel Gauge: could not write the bridge script to ~/.claude/scripts, so the gauge cannot update. ' +
-      'Run "Fuel Gauge: Show Diagnostics" for details.'
+      'Brain Drain: could not write the bridge script to ~/.claude/scripts, so the gauge cannot update. ' +
+      'Run "Brain Drain: Show Diagnostics" for details.'
     );
   } else if (bridge === 'stale') {
     void vscode.window.showWarningMessage(
-      'Fuel Gauge: could not update the bridge script in ~/.claude/scripts. An older copy is still ' +
-      'in place, so the gauge keeps working. Run "Fuel Gauge: Show Diagnostics" for details.'
+      'Brain Drain: could not update the bridge script in ~/.claude/scripts. An older copy is still ' +
+      'in place, so the gauge keeps working. Run "Brain Drain: Show Diagnostics" for details.'
     );
   }
   // Never awaited: a modal must not block activation. Skipped when there is no
@@ -676,8 +676,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     100
   );
-  statusBarItem.name = 'Fuel Gauge: context';
-  statusBarItem.tooltip = 'Claude Code Fuel Gauge';
+  statusBarItem.name = 'Brain Drain: context';
+  statusBarItem.tooltip = 'Brain Drain for Claude Code';
   context.subscriptions.push(statusBarItem);
 
   cacheStatusBarItem = vscode.window.createStatusBarItem(
@@ -685,7 +685,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     99
   );
-  cacheStatusBarItem.name = 'Fuel Gauge: cache countdown';
+  cacheStatusBarItem.name = 'Brain Drain: cache countdown';
   context.subscriptions.push(cacheStatusBarItem);
 
   effortStatusBarItem = vscode.window.createStatusBarItem(
@@ -693,7 +693,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     98
   );
-  effortStatusBarItem.name = 'Fuel Gauge: model and effort';
+  effortStatusBarItem.name = 'Brain Drain: model and effort';
   context.subscriptions.push(effortStatusBarItem);
 
   usageStatusBarItem = vscode.window.createStatusBarItem(
@@ -701,7 +701,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     97
   );
-  usageStatusBarItem.name = 'Fuel Gauge: usage alert';
+  usageStatusBarItem.name = 'Brain Drain: usage alert';
   context.subscriptions.push(usageStatusBarItem);
 
   wrongFolderItem = vscode.window.createStatusBarItem(
@@ -709,7 +709,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     96
   );
-  wrongFolderItem.name = 'Fuel Gauge: wrong folder';
+  wrongFolderItem.name = 'Brain Drain: wrong folder';
   context.subscriptions.push(wrongFolderItem);
 
   startPolling();
@@ -856,7 +856,7 @@ function extensionVersion(): string {
     ?.packageJSON?.version ?? 'unknown';
 }
 
-// Step 6: the backup lives in globalStorageUri, which no version of Fuel Gauge prunes.
+// Step 6: the backup lives in globalStorageUri, which no version of Brain Drain prunes.
 function backupPath(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, 'statusline-backup.json');
 }
@@ -895,7 +895,7 @@ function recordBackup(context: vscode.ExtensionContext, previous: unknown, comma
   } catch {
     // Never silent, and never ignored by a caller about to overwrite something.
     void vscode.window.showWarningMessage(
-      'Fuel Gauge: could not save a backup of your existing status line.'
+      'Brain Drain: could not save a backup of your existing status line.'
     );
     return false;
   }
@@ -918,7 +918,7 @@ function writeStatusLine(settings: Record<string, unknown>, bridgePath: string):
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     void vscode.window.showErrorMessage(
-      `Fuel Gauge: could not write ~/.claude/settings.json (${reason}). Your status line was not changed.`
+      `Brain Drain: could not write ~/.claude/settings.json (${reason}). Your status line was not changed.`
     );
     return false;
   }
@@ -954,7 +954,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     statusLineOwner = 'unknown';
     const open = 'Open settings.json';
     const choice = await vscode.window.showErrorMessage(
-      `Fuel Gauge: could not read ~/.claude/settings.json (${read.error}). Nothing was changed.`,
+      `Brain Drain: could not read ~/.claude/settings.json (${read.error}). Nothing was changed.`,
       open
     );
     if (choice === open) {
@@ -983,13 +983,13 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     statusLineOwner = 'ours';
     if (!backedUp) {
       void vscode.window.showInformationMessage(
-        'Fuel Gauge: status line connected. Restart Claude Code to see context usage.'
+        'Brain Drain: status line connected. Restart Claude Code to see context usage.'
       );
       return;
     }
     const undo = 'Undo';
     const choice = await vscode.window.showInformationMessage(
-      'Fuel Gauge: status line connected. Restart Claude Code to see context usage.',
+      'Brain Drain: status line connected. Restart Claude Code to see context usage.',
       undo
     );
     if (choice === undo) {
@@ -1009,13 +1009,13 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   const replace = 'Replace';
   const notNow = 'Not now';
   const choice = await vscode.window.showWarningMessage(
-    'Fuel Gauge needs Claude Code’s status line slot, which is already in use.',
+    'Brain Drain needs Claude Code’s status line slot, which is already in use.',
     {
       modal: true,
       detail:
         `Your current status line command is:\n\n  ${state.command}\n\n` +
-        'Fuel Gauge would replace it in ~/.claude/settings.json. Your command will be ' +
-        'saved first, and "Fuel Gauge: Restore Previous Status Line" puts it back at any time.\n\n' +
+        'Brain Drain would replace it in ~/.claude/settings.json. Your command will be ' +
+        'saved first, and "Brain Drain: Restore Previous Status Line" puts it back at any time.\n\n' +
         'Claude Code allows only one status line command, so the two cannot run at once.',
     },
     replace,
@@ -1031,8 +1031,8 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     await config.update('manageStatusLine', false, vscode.ConfigurationTarget.Global);
     statusLineOwner = 'optout';
     void vscode.window.showInformationMessage(
-      'Fuel Gauge: leaving your status line alone. Set "fuel-gauge.manageStatusLine" to true, ' +
-      'or run "Fuel Gauge: Connect Status Line", if you change your mind.'
+      'Brain Drain: leaving your status line alone. Set "fuel-gauge.manageStatusLine" to true, ' +
+      'or run "Brain Drain: Connect Status Line", if you change your mind.'
     );
     return;
   }
@@ -1041,7 +1041,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   const recheck = readSettings();
   if (recheck.kind !== 'ok' && recheck.kind !== 'missing') {
     void vscode.window.showErrorMessage(
-      'Fuel Gauge: ~/.claude/settings.json changed and can no longer be read. Nothing was changed.'
+      'Brain Drain: ~/.claude/settings.json changed and can no longer be read. Nothing was changed.'
     );
     return;
   }
@@ -1049,8 +1049,8 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   const freshState = classifyStatusLine(fresh, bridgePath);
   if (freshState.command !== state.command) {
     void vscode.window.showWarningMessage(
-      'Fuel Gauge: your status line changed while the dialog was open, so nothing was changed. ' +
-      'Run "Fuel Gauge: Connect Status Line" to try again.'
+      'Brain Drain: your status line changed while the dialog was open, so nothing was changed. ' +
+      'Run "Brain Drain: Connect Status Line" to try again.'
     );
     return;
   }
@@ -1060,7 +1060,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   // exactly the damage this whole flow exists to prevent.
   if (!recordBackup(context, fresh.statusLine, state.command)) {
     void vscode.window.showWarningMessage(
-      'Fuel Gauge: your status line was left alone, because the backup could not be saved.'
+      'Brain Drain: your status line was left alone, because the backup could not be saved.'
     );
     return;
   }
@@ -1070,7 +1070,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   statusLineOwner = 'ours';
   foreignCommand = null;
   void vscode.window.showInformationMessage(
-    'Fuel Gauge: status line connected. Restart Claude Code to see context usage.'
+    'Brain Drain: status line connected. Restart Claude Code to see context usage.'
   );
 }
 
@@ -1081,7 +1081,7 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
 
   if (!backup) {
     void vscode.window.showInformationMessage(
-      'Fuel Gauge: no saved status line to restore. Nothing was changed.'
+      'Brain Drain: no saved status line to restore. Nothing was changed.'
     );
     return;
   }
@@ -1089,7 +1089,7 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
   const read = readSettings();
   if (read.kind === 'unreadable') {
     void vscode.window.showErrorMessage(
-      `Fuel Gauge: could not read ~/.claude/settings.json (${read.error}). Nothing was changed.`
+      `Brain Drain: could not read ~/.claude/settings.json (${read.error}). Nothing was changed.`
     );
     return;
   }
@@ -1105,7 +1105,7 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
         detail:
           `This will set:\n\n  ${backup.previousCommandString ?? '(no status line)'}\n\n` +
           `replacing:\n\n  ${current.command ?? '(no status line)'}\n\n` +
-          'Fuel Gauge will stop managing the status line and its readouts will go dark.',
+          'Brain Drain will stop managing the status line and its readouts will go dark.',
       },
       restore
     );
@@ -1124,7 +1124,7 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   } catch (err) {
     void vscode.window.showErrorMessage(
-      `Fuel Gauge: could not write ~/.claude/settings.json (${err instanceof Error ? err.message : String(err)}).`
+      `Brain Drain: could not write ~/.claude/settings.json (${err instanceof Error ? err.message : String(err)}).`
     );
     return;
   }
@@ -1136,14 +1136,14 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
   foreignCommand = backup.previousCommandString;
 
   void vscode.window.showInformationMessage(
-    'Fuel Gauge: previous status line restored. Restart Claude Code to apply.'
+    'Brain Drain: previous status line restored. Restart Claude Code to apply.'
   );
 }
 
 // Step 9: read-only diagnostics, so "my gauge is dark" becomes a paste.
 function showBridgeStatus() {
   const { bridgePath, settingsPath, claudeDir } = claudePaths();
-  const out = vscode.window.createOutputChannel('Claude Code Fuel Gauge');
+  const out = vscode.window.createOutputChannel('Brain Drain for Claude Code');
   const lines: string[] = [];
   const add = (k: string, v: string) => lines.push(`${k.padEnd(28)} ${v}`);
 
@@ -1166,7 +1166,7 @@ function showBridgeStatus() {
     const state = classifyStatusLine(read.settings, bridgePath);
     add('~/.claude/settings.json', 'parsed OK');
     add('statusLine.command', state.command ?? '(none)');
-    add('Owned by Fuel Gauge', state.owner === 'ours' ? 'yes' : 'no');
+    add('Owned by Brain Drain', state.owner === 'ours' ? 'yes' : 'no');
   }
 
   add('manageStatusLine setting', String(
@@ -1235,7 +1235,7 @@ function showBridgeStatus() {
   }
 
   out.clear();
-  out.appendLine('Claude Code Fuel Gauge — diagnostics');
+  out.appendLine('Brain Drain for Claude Code — diagnostics');
   out.appendLine('');
   lines.forEach((l) => out.appendLine(l));
   out.show();
@@ -1706,8 +1706,8 @@ function renderStatus() {
       statusBarItem.color = undefined;
       statusBarItem.tooltip =
         statusLineOwner === 'optout'
-          ? 'Fuel Gauge is not connected — you chose to keep your own status line. Click to connect.'
-          : `Fuel Gauge is not connected — Claude Code's status line is used by:\n  ${foreignCommand ?? 'another command'}\nClick to connect.`;
+          ? 'Brain Drain is not connected — you chose to keep your own status line. Click to connect.'
+          : `Brain Drain is not connected — Claude Code's status line is used by:\n  ${foreignCommand ?? 'another command'}\nClick to connect.`;
       statusBarItem.command = 'fuel-gauge.setupStatusLine';
       statusBarItem.show();
       cacheStatusBarItem.hide();
@@ -1718,7 +1718,7 @@ function renderStatus() {
     // measurement of an empty context window; a "no session" label was honest
     // but sat in every window that is not running Claude, forever. The gauge
     // comes back on its own as soon as a session writes for this folder.
-    // Why a window shows nothing is a question for Fuel Gauge: Show
+    // Why a window shows nothing is a question for Brain Drain: Show
     // Diagnostics, which names the folder and says whether a session matches it.
     statusBarItem.hide();
     cacheStatusBarItem.hide();

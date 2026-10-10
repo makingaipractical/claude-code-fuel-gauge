@@ -1,19 +1,19 @@
-# Claude Code Fuel Gauge
+# Brain Drain for Claude Code
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://vsmarketplacebadges.dev/version-short/makingaipractical.claude-code-fuel-gauge.svg?label=VS%20Marketplace&color=1f8ceb" alt="VS Marketplace version"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge"><img src="https://vsmarketplacebadges.dev/installs-short/makingaipractical.claude-code-fuel-gauge.svg?label=installs&color=1f8ceb" alt="Installs"></a>
 </p>
 
-Fuel Gauge puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits on Anthropic subscription plans.
+Brain Drain puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits on Anthropic subscription plans.
 
 <p align="center">
-  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Fuel Gauge: context % and cache countdown in green — 20% in one, 9% in the other — and the model-effort indicator, fable·x-high">
+  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Brain Drain: context % and cache countdown in green — 20% in one, 9% in the other — and the model-effort indicator, fable·x-high">
 </p>
 
 ## Everything stays on your machine
 
-Fuel Gauge never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of any kind*. Every number it shows comes from files Claude Code already writes on your own disk.
+Brain Drain never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of any kind*. Every number it shows comes from files Claude Code already writes on your own disk.
 
 The complete list of every file it reads and writes — there are five, all under `~/.claude` or VS Code's own storage — is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md).
 
@@ -21,7 +21,7 @@ The complete list of every file it reads and writes — there are five, all unde
 
 Anthropic keeps the front of your conversation warm in a prompt cache, for five minutes or an hour depending on your plan. While it is warm, your next message reuses it. Let it go cold and the whole conversation is read again from the start: the next turn is slower, and on API billing it costs more.
 
-Fuel Gauge shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `10%` context sits in green next to an `expired` cache in red — and the amber dot on the right is the usage alert, lit because a usage limit crossed 70%.
+Brain Drain shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `10%` context sits in green next to an `expired` cache in red — and the amber dot on the right is the usage alert, lit because a usage limit crossed 70%.
 
 <p align="center">
   <img src="images/cache-expired.png" width="300" alt="Status bar showing 10% context in green, an expired cache countdown in red with a circle-slash icon, the model-effort indicator fable·x-high, and the amber usage alert dot">
@@ -33,16 +33,16 @@ Fuel Gauge shows the time you have left as its own status bar item, with its own
 - **Expired** — `expired` label in red with a circle-slash icon
 - **Hidden** — when there is no cache state yet (fresh session, just after `/compact`)
 
-**How exact it is.** The cache lifetime is read, not guessed. Claude Code records on every turn which cache it asked for, the five-minute one or the one-hour one, and Fuel Gauge reads the most recent of those entries from the end of the session transcript. That reading is exact, and it corrects itself on the next update. The answer is saved to `~/.claude/fuel-gauge/account_ttl.json`, so a new session's countdown is right from its first second.
+**How exact it is.** The cache lifetime is read, not guessed. Claude Code records on every turn which cache it asked for, the five-minute one or the one-hour one, and Brain Drain reads the most recent of those entries from the end of the session transcript. That reading is exact, and it corrects itself on the next update. The answer is saved to `~/.claude/fuel-gauge/account_ttl.json`, so a new session's countdown is right from its first second.
 
-The countdown itself starts again from the full lifetime on every status line update, so it tracks the last activity Claude Code reported. If the record cannot be read — an older Claude Code that does not say where the transcript is, or a file that will not open — Fuel Gauge falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` overrides all of it, if you would rather fix the value yourself.
+The countdown itself starts again from the full lifetime on every status line update, so it tracks the last activity Claude Code reported. If the record cannot be read — an older Claude Code that does not say where the transcript is, or a file that will not open — Brain Drain falls back to the one thing the token counts can prove on their own: a cache that survived more than five minutes is not a five-minute cache. `fuel-gauge.cacheTTL` overrides all of it, if you would rather fix the value yourself.
 
 ## The other three readouts
 
-Fuel Gauge shows up to four items, right-aligned, and one shared hover tooltip that breaks everything down.
+Brain Drain shows up to four items, right-aligned, and one shared hover tooltip that breaks everything down.
 
 <p align="center">
-  <img src="images/tooltip.png" width="360" alt="The Fuel Gauge hover tooltip: model and effort in color, then context %, the time the cache expires, and the session and weekly usage limits with reset times">
+  <img src="images/tooltip.png" width="360" alt="The Brain Drain hover tooltip: model and effort in color, then context %, the time the cache expires, and the session and weekly usage limits with reset times">
 </p>
 
 ### Context percentage
@@ -73,7 +73,7 @@ Turn the whole usage display off with `fuel-gauge.showUsage: false`.
 
 ## Install
 
-Search for **Claude Code Fuel Gauge** in the VS Code Extensions panel, or install from the command line:
+Search for **Brain Drain for Claude Code** in the VS Code Extensions panel, or install from the command line:
 
 ```bash
 code --install-extension makingaipractical.claude-code-fuel-gauge
@@ -85,7 +85,7 @@ Restart any running Claude Code sessions after installing. The extension sets up
 
 ## How it works
 
-Claude Code has a [statusline feature](https://code.claude.com/docs/en/statusline) that exposes session data as JSON. Fuel Gauge uses it in two parts:
+Claude Code has a [statusline feature](https://code.claude.com/docs/en/statusline) that exposes session data as JSON. Brain Drain uses it in two parts:
 
 1. **Bridge script** — installed automatically on first activation. Claude Code pipes session data to it, and it writes one small JSON file per session to `~/.claude/fuel-gauge/`.
 2. **Extension** — polls that directory every 15 seconds, finds the session matching your current workspace, and shows the numbers in the status bar.
@@ -94,19 +94,19 @@ Everything — context, cache, model, effort, usage limits — rides that same l
 
 Works for both the built-in VS Code extension's sessions and `claude` sessions in the integrated terminal.
 
-### The status line slot, and what Fuel Gauge writes
+### The status line slot, and what Brain Drain writes
 
-Claude Code allows **one** status line command. Fuel Gauge needs it, because the 5-hour and
+Claude Code allows **one** status line command. Brain Drain needs it, because the 5-hour and
 weekly usage percentages exist nowhere else on your machine — they are not in the session
 transcripts and no hook receives them.
 
 So if you already run your own status line (ccstatusline, a powerline script, anything),
-Fuel Gauge asks before taking the slot, saves what was there, and can put it back:
+Brain Drain asks before taking the slot, saves what was there, and can put it back:
 
-- **Fuel Gauge: Restore Previous Status Line** — puts your command back and stops Fuel Gauge managing the slot.
-- **Fuel Gauge: Connect Status Line** — asks again if you declined.
-- **Claude Code Fuel Gauge: Show Diagnostics** — read-only report if the gauge is dark.
-- `fuel-gauge.manageStatusLine` — set to `false` to keep Fuel Gauge away from your settings entirely.
+- **Brain Drain: Restore Previous Status Line** — puts your command back and stops Brain Drain managing the slot.
+- **Brain Drain: Connect Status Line** — asks again if you declined.
+- **Brain Drain: Show Diagnostics** — read-only report if the gauge is dark.
+- `fuel-gauge.manageStatusLine` — set to `false` to keep Brain Drain away from your settings entirely.
 
 The two cannot run at the same time. That is a Claude Code limitation, not a choice I made.
 
@@ -130,21 +130,21 @@ The two cannot run at the same time. That is a Claude Code limitation, not a cho
 | `fuel-gauge.warningThreshold` | 60 | Context % at which the indicator turns yellow |
 | `fuel-gauge.dangerThreshold` | 80 | Context % at which the indicator turns red |
 | `fuel-gauge.systemOverhead` | 0 | Deprecated, and safe to delete from your settings. A number of tokens to subtract from the context window before working out the percentage. Used only if Claude Code sends no percentage of its own |
-| `fuel-gauge.cacheTTL` | `null` (auto) | How long the prompt cache lives, in seconds. Leave it empty and Fuel Gauge reads the answer from Claude Code's own record. Set `300` (5 minutes) or `3600` (1 hour) only to override that |
+| `fuel-gauge.cacheTTL` | `null` (auto) | How long the prompt cache lives, in seconds. Leave it empty and Brain Drain reads the answer from Claude Code's own record. Set `300` (5 minutes) or `3600` (1 hour) only to override that |
 | `fuel-gauge.cacheWarningSeconds` | `null` (off) | Play 3 short beeps when the cache countdown drops below this many seconds. macOS only. Example: `180` for a 3-minute warning |
 | `fuel-gauge.effortStyle` | `text` | Model·effort item: `text` to show it, `off` to hide it |
 | `fuel-gauge.showUsage` | `true` | Show session/weekly usage in the hover, with the alert dot when a limit is high |
-| `fuel-gauge.manageStatusLine` | `true` | Let Fuel Gauge use Claude Code's status line slot. Set to `false` to keep it out of `~/.claude/settings.json` entirely — the gauge then shows nothing |
+| `fuel-gauge.manageStatusLine` | `true` | Let Brain Drain use Claude Code's status line slot. Set to `false` to keep it out of `~/.claude/settings.json` entirely — the gauge then shows nothing |
 
-To hide one of the four items without hiding the rest, right-click the status bar itself: VS Code lists them as **Fuel Gauge: context**, **cache countdown**, **model and effort** and **usage alert**, and remembers what you switch off. No setting needed.
+To hide one of the four items without hiding the rest, right-click the status bar itself: VS Code lists them as **Brain Drain: context**, **cache countdown**, **model and effort** and **usage alert**, and remembers what you switch off. No setting needed.
 
 ## Known issues
 
-**The percentage will not match VS Code's pie or the "Context low" message.** Those measure how close you are to an automatic compact, against a smaller window. Fuel Gauge matches `/context` and Claude Code's own status line. Neither reading is wrong; they count different things.
+**The percentage will not match VS Code's pie or the "Context low" message.** Those measure how close you are to an automatic compact, against a smaller window. Brain Drain matches `/context` and Claude Code's own status line. Neither reading is wrong; they count different things.
 
-**No per-model weekly bar.** `/usage` shows Max users a per-model figure that Claude Code does not put in the status line data, and the only other way to it is a web request with your login credentials — which Fuel Gauge will not make. If Anthropic adds it to the status line, it will show up here.
+**No per-model weekly bar.** `/usage` shows Max users a per-model figure that Claude Code does not put in the status line data, and the only other way to it is a web request with your login credentials — which Brain Drain will not make. If Anthropic adds it to the status line, it will show up here.
 
-**Usage can be missing.** The limit numbers arrive only on subscription plans, and only after the session's first response. Fuel Gauge hides the display rather than show a false 0%.
+**Usage can be missing.** The limit numbers arrive only on subscription plans, and only after the session's first response. Brain Drain hides the display rather than show a false 0%.
 
 **Empty in an untrusted folder.** Claude Code runs the status line command only after you accept its workspace-trust prompt. Trust the folder and restart the session.
 
@@ -156,15 +156,15 @@ To hide one of the four items without hiding the rest, right-click the status ba
 
 ## Questions, bugs and ideas
 
-If something is broken, [open an issue](https://github.com/makingaipractical/claude-code-fuel-gauge/issues/new/choose) and pick the bug report template. It asks you to paste the output of the **Claude Code Fuel Gauge: Show Diagnostics** command, which lists your settings file, the bridge script and the session files Fuel Gauge can see — that report answers most of the questions I would otherwise have to ask you, so please include it. Questions about how any of this works belong in [Discussions under Q&A](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/q-a), and things you would like Fuel Gauge to do belong in [Discussions under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas). If the extension is working for you, please [leave a review on the Marketplace](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge&ssr=false#review-details) — reviews are how other people find it.
+If something is broken, [open an issue](https://github.com/makingaipractical/claude-code-fuel-gauge/issues/new/choose) and pick the bug report template. It asks you to paste the output of the **Brain Drain: Show Diagnostics** command, which lists your settings file, the bridge script and the session files Brain Drain can see — that report answers most of the questions I would otherwise have to ask you, so please include it. Questions about how any of this works belong in [Discussions under Q&A](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/q-a), and things you would like Brain Drain to do belong in [Discussions under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas). If the extension is working for you, please [leave a review on the Marketplace](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge&ssr=false#review-details) — reviews are how other people find it.
 
 If you would rather not use GitHub — or you want to talk about something that does not belong on a public tracker — email [info@makingaipractical.com](mailto:info@makingaipractical.com). And if you want to send a patch, [CONTRIBUTING.md](CONTRIBUTING.md) says how to run everything locally.
 
 ## Privacy
 
-No API calls, no telemetry, no runtime dependencies, no account. Everything runs locally on Claude Code's own statusline data, including the usage numbers. This is the complete list of what Fuel Gauge reads and writes:
+No API calls, no telemetry, no runtime dependencies, no account. Everything runs locally on Claude Code's own statusline data, including the usage numbers. This is the complete list of what Brain Drain reads and writes:
 
-| File or folder | What Fuel Gauge does with it |
+| File or folder | What Brain Drain does with it |
 | --- | --- |
 | `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`, and only after you agree to it. Every other setting is left as it was. |
 | `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first. |
@@ -192,4 +192,4 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 
 The full change-by-change record is in [CHANGELOG.md](CHANGELOG.md). Previously released as BrainDrain CC (v0.1.0–v0.4.4).
 
-This page was written by Claude (Fable) and me. Fuel Gauge itself was developed with Claude Code.
+This page was written by Claude (Fable) and me. Brain Drain itself was developed with Claude Code.

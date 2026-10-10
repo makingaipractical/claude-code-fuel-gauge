@@ -1,6 +1,6 @@
 {
   "name": "claude-code-fuel-gauge",
-  "displayName": "Claude Code Fuel Gauge",
+  "displayName": "Brain Drain for Claude Code",
   "description": "Live context %, cache countdown, model and effort level, and usage limits for Claude Code — in your VS Code status bar.",
   "version": "0.9.1",
   "publisher": "makingaipractical",
@@ -23,6 +23,8 @@
     "context-window",
     "context-meter",
     "fuel-gauge",
+    "fuel gauge",
+    "brain drain",
     "ai",
     "status-bar",
     "token-usage",
@@ -40,7 +42,7 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Claude Code Fuel Gauge",
+      "title": "Brain Drain for Claude Code",
       "properties": {
         "fuel-gauge.pollInterval": {
           "type": "number",
@@ -60,8 +62,8 @@
         "fuel-gauge.systemOverhead": {
           "type": "number",
           "default": 0,
-          "description": "A number of tokens to subtract from the size of the context window before Fuel Gauge works out the percentage. You no longer need this: Fuel Gauge now shows the percentage Claude Code itself reports. A value you set here is used only when Claude Code sends no percentage of its own, which almost never happens.",
-          "deprecationMessage": "Fuel Gauge no longer needs this setting and you can safely remove it. It now shows the same context percentage that Claude Code's /context command and status line report, so there is nothing left to correct for. A value you set here still works, but only when Claude Code sends no percentage of its own."
+          "description": "A number of tokens to subtract from the size of the context window before Brain Drain works out the percentage. You no longer need this: Brain Drain now shows the percentage Claude Code itself reports. A value you set here is used only when Claude Code sends no percentage of its own, which almost never happens.",
+          "deprecationMessage": "Brain Drain no longer needs this setting and you can safely remove it. It now shows the same context percentage that Claude Code's /context command and status line report, so there is nothing left to correct for. A value you set here still works, but only when Claude Code sends no percentage of its own."
         },
         "fuel-gauge.cacheTTL": {
           "type": [
@@ -69,7 +71,7 @@
             "null"
           ],
           "default": null,
-          "description": "How long Claude Code's prompt cache lives, in seconds. Leave this empty and Fuel Gauge reads the answer from Claude Code itself: it records which cache it asked for on every turn. Set a number here only to override that — 300 for five minutes, 3600 for one hour."
+          "description": "How long Claude Code's prompt cache lives, in seconds. Leave this empty and Brain Drain reads the answer from Claude Code itself: it records which cache it asked for on every turn. Set a number here only to override that — 300 for five minutes, 3600 for one hour."
         },
         "fuel-gauge.cacheWarningSeconds": {
           "type": [
@@ -91,12 +93,12 @@
         "fuel-gauge.showUsage": {
           "type": "boolean",
           "default": true,
-          "description": "Show your Claude plan's usage limits — session (5-hour) and weekly percentage used, with reset times — in the fuel-gauge hover tooltip. When a limit gets high, a colored alert dot appears in the status bar (yellow at 70% used, red at 90%). Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
+          "description": "Show your Claude plan's usage limits — session (5-hour) and weekly percentage used, with reset times — in the gauge's hover tooltip. When a limit gets high, a colored alert dot appears in the status bar (yellow at 70% used, red at 90%). Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
         },
         "fuel-gauge.manageStatusLine": {
           "type": "boolean",
           "default": true,
-          "description": "Let Fuel Gauge use Claude Code's status line slot in ~/.claude/settings.json. Claude Code allows only one status line command, so turning this off means Fuel Gauge shows nothing. Your previous command is saved and can be put back with \"Fuel Gauge: Restore Previous Status Line\"."
+          "description": "Let Brain Drain use Claude Code's status line slot in ~/.claude/settings.json. Claude Code allows only one status line command, so turning this off means Brain Drain shows nothing. Your previous command is saved and can be put back with \"Brain Drain: Restore Previous Status Line\"."
         }
       }
     },
@@ -104,17 +106,17 @@
       {
         "command": "fuel-gauge.setupStatusLine",
         "title": "Connect Status Line",
-        "category": "Claude Code Fuel Gauge"
+        "category": "Brain Drain"
       },
       {
         "command": "fuel-gauge.restoreStatusLine",
         "title": "Restore Previous Status Line",
-        "category": "Claude Code Fuel Gauge"
+        "category": "Brain Drain"
       },
       {
         "command": "fuel-gauge.showBridgeStatus",
         "title": "Show Diagnostics",
-        "category": "Claude Code Fuel Gauge"
+        "category": "Brain Drain"
       }
     ]
   },

@@ -2,7 +2,7 @@
 
 ## What the extension touches
 
-Claude Code Fuel Gauge runs entirely on your own machine. It makes no network calls of any
+Brain Drain for Claude Code runs entirely on your own machine. It makes no network calls of any
 kind: no telemetry, no update checks, no account, no API keys.
 
 It reads and writes these files, and nothing else:

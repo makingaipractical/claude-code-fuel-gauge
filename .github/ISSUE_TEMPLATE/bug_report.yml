@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Claude Code Fuel Gauge does not work the way it should.
+description: Something in Brain Drain for Claude Code does not work the way it should.
 title: "[Bug] "
 labels: ["bug"]
 body:
@@ -26,10 +26,10 @@ body:
       label: Output of the Show Diagnostics command
       description: >
         Open the Command Palette in VS Code (Ctrl+Shift+P on Windows and Linux,
-        Cmd+Shift+P on a Mac), type "Claude Code Fuel Gauge: Show Diagnostics" and press Enter,
+        Cmd+Shift+P on a Mac), type "Brain Drain for Claude Code: Show Diagnostics" and press Enter,
         then copy everything from the panel that opens and paste it here.
         The report is read-only. It lists your settings file, the bridge script and the
-        session files Fuel Gauge can see. It contains no message text from your Claude Code
+        session files Brain Drain can see. It contains no message text from your Claude Code
         conversations.
       render: text
     validations:

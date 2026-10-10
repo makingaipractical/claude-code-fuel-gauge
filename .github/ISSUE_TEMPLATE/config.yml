@@ -5,7 +5,7 @@ contact_links:
     about: Ask how something works, or why the status bar shows what it shows.
   - name: Suggest a feature
     url: https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas
-    about: Propose something Fuel Gauge should do, and see what other people have proposed.
+    about: Propose something Brain Drain should do, and see what other people have proposed.
   - name: Claude Code itself is misbehaving
     url: https://github.com/anthropics/claude-code/issues
-    about: Fuel Gauge only displays what Claude Code's status line sends it, so problems in Claude Code belong to Anthropic's issue tracker.
+    about: Brain Drain only displays what Claude Code's status line sends it, so problems in Claude Code belong to Anthropic's issue tracker.

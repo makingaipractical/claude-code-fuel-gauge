@@ -931,7 +931,7 @@ async function run(name, fn) {
     // separately and remember which ones a user hides.
     const named = [context, cache, effort, usage];
     check('every item has a readable name',
-      named.every((b) => typeof b.name === 'string' && b.name.startsWith('Fuel Gauge: ')),
+      named.every((b) => typeof b.name === 'string' && b.name.startsWith('Brain Drain: ')),
       JSON.stringify(named.map((b) => b.name)));
     check('every item has its own id, so hiding one does not hide the rest',
       new Set(named.map((b) => b.id)).size === 4, JSON.stringify(named.map((b) => b.id)));
@@ -1137,7 +1137,7 @@ async function run(name, fn) {
     check('in red', !!warn && warn.color && warn.color.id === 'charts.red',
       warn && warn.color && warn.color.id);
     check('it carries a name so it can be hidden from the status bar menu',
-      !!warn && warn.name === 'Fuel Gauge: wrong folder', warn && warn.name);
+      !!warn && warn.name === 'Brain Drain: wrong folder', warn && warn.name);
     check('and an id of its own', !!warn && warn.id === 'fuel-gauge.wrongFolder',
       warn && warn.id);
     const tip = String(warn && warn.tooltip && warn.tooltip.value);

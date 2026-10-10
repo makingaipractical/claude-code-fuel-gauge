@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Fuel Gauge — Context Bridge
+# Brain Drain for Claude Code — Context Bridge
 # Reads statusline JSON from stdin, writes to ~/.claude/fuel-gauge/{session_id}.json
 # Configure in ~/.claude/settings.json:
 #   "statusLine": { "type": "command", "command": "/path/to/context-bridge.sh" }
