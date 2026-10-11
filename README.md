@@ -116,7 +116,7 @@ Brain Drain asks before taking the slot, saves what was there, and can put it ba
 
 The bridge and your own status line cannot run at the same time. That is a Claude Code limitation, not a choice I made.
 
-**To keep your own status line,** choose **Not now** when Brain Drain asks, and install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the same figures to `~/.claude/fuel-gauge/` itself, and the gauge reads them from there: context percentage, cache countdown, model·effort and the usage limits.
+**To keep your own status line,** choose **Not now** when Brain Drain asks, and install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the session file to `~/.claude/fuel-gauge/` itself, with the same fields, and the gauge reads it from there: context percentage, cache countdown, model·effort and the usage limits.
 
 ## Requirements
 
