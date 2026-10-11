@@ -1161,9 +1161,13 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
 }
 
 // Step 9: read-only diagnostics, so "my gauge is dark" becomes a paste.
+// One channel for the life of the extension: creating one per run left a
+// duplicate entry in the Output panel's list each time (#4952).
+let diagnosticsChannel: vscode.OutputChannel | undefined;
 function showBridgeStatus() {
   const { bridgePath, settingsPath, claudeDir } = claudePaths();
-  const out = vscode.window.createOutputChannel('Brain Drain for Claude Code');
+  diagnosticsChannel ??= vscode.window.createOutputChannel('Brain Drain for Claude Code');
+  const out = diagnosticsChannel;
   const lines: string[] = [];
   const add = (k: string, v: string) => lines.push(`${k.padEnd(28)} ${v}`);
 
@@ -1907,4 +1911,6 @@ export function deactivate() {
   clearTracking();
   wrongFolderStart = undefined;
   wrongFolderItem = undefined;
+  diagnosticsChannel?.dispose();
+  diagnosticsChannel = undefined;
 }

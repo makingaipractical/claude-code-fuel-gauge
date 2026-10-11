@@ -11,6 +11,7 @@ const EXT_DIR = path.resolve(__dirname, '..');
 const OUT = path.join(EXT_DIR, 'out', 'extension.js');
 
 let TMPROOT, answers, messages, settingsPath, globalStorage, configStore, bars, configListeners, outputLines;
+let outputChannelsCreated = 0;
 let shellStartListeners, shellEndListeners, folderChangeListeners;
 
 function makeVscode() {
@@ -40,7 +41,7 @@ function makeVscode() {
   return {
     window: {
       createStatusBarItem: bar,
-      createOutputChannel: () => ({
+      createOutputChannel: () => (outputChannelsCreated++, {
         clear() { outputLines.length = 0; },
         appendLine(l) { outputLines.push(l); },
         show() {}, dispose() {},
@@ -636,6 +637,12 @@ async function run(name, fn) {
     await registered['fuel-gauge.showBridgeStatus']();
     const report = outputLines.join('\n');
     check('Show Diagnostics still runs', outputLines.length > 0);
+    // Each run used to open a new Output channel of the same name, so the
+    // Output panel's list filled with duplicates (#4952).
+    const channelsBefore = outputChannelsCreated;
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('a second Diagnostics run reuses its Output channel',
+      outputChannelsCreated === channelsBefore, `${outputChannelsCreated - channelsBefore} new`);
     check('Diagnostics names the folder this window has open', report.includes(ws), report);
     check('Diagnostics says no session matches it, and why',
       /Session for this workspace\s+NONE/.test(report) &&
