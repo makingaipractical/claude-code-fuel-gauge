@@ -1498,6 +1498,36 @@ async function run(name, fn) {
     }
   });
 
+  // 32. SHOW DIAGNOSTICS NAMES THE SETTINGS THAT SWITCH HOOKS OFF (#4946).
+  //     disableAllHooks (anywhere) and allowManagedHooksOnly (managed) stop a
+  //     custom status line without a word, so a dark gauge needs the pointer.
+  await run('diagnostics-hooks-switched-off', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(path.join(ws, '.claude'), { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+
+    await registered['fuel-gauge.showBridgeStatus']();
+    let report = outputLines.join('\n');
+    check('a clean setup says hooks are not switched off',
+      report.includes('not switched off'), report);
+
+    const userSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    fs.writeFileSync(settingsPath, JSON.stringify({ ...userSettings, disableAllHooks: true }, null, 2));
+    const projectLocal = path.join(ws, '.claude', 'settings.local.json');
+    fs.writeFileSync(projectLocal, JSON.stringify({ disableAllHooks: true }, null, 2));
+    await registered['fuel-gauge.showBridgeStatus']();
+    report = outputLines.join('\n');
+    check('Diagnostics says hooks are switched off', report.includes('SWITCHED OFF'), report);
+    check('naming disableAllHooks in the user settings',
+      report.includes(`${settingsPath} sets disableAllHooks`), report);
+    check('and in a project-level settings file',
+      report.includes(`${projectLocal} sets disableAllHooks`), report);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

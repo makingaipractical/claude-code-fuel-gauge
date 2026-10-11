@@ -1198,6 +1198,37 @@ function showBridgeStatus() {
   ));
   add('In-memory owner', statusLineOwner);
 
+  // Two settings switch a custom status line off without a word (#4946; the
+  // statusline docs' troubleshooting section, 31 August):
+  // allowManagedHooksOnly in managed settings, and disableAllHooks anywhere.
+  // Read from the files we can see; MDM profiles and server-managed policy
+  // are not files here, so a clean result is not proof.
+  const hookBlockers: string[] = [];
+  const noteHookBlockers = (p: string, parsed: Record<string, unknown>, managed: boolean) => {
+    if (parsed.disableAllHooks === true) {
+      hookBlockers.push(`${p} sets disableAllHooks`);
+    }
+    if (managed && parsed.allowManagedHooksOnly === true) {
+      hookBlockers.push(`${p} sets allowManagedHooksOnly`);
+    }
+  };
+  if (read.kind === 'ok') {
+    noteHookBlockers(settingsPath, read.settings, false);
+  }
+  // Claude Code 2.1.296 looks for managed-settings.json in this folder.
+  const managedDir = process.platform === 'darwin' ? '/Library/Application Support/ClaudeCode'
+    : process.platform === 'win32' ? 'C:\\Program Files\\ClaudeCode'
+      : undefined;
+  if (managedDir) {
+    const p = path.join(managedDir, 'managed-settings.json');
+    try {
+      const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      if (parsed && typeof parsed === 'object') { noteHookBlockers(p, parsed, true); }
+    } catch {
+      // No managed settings file is the normal case.
+    }
+  }
+
   // A project-level statusLine outranks ~/.claude and would silently win.
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     for (const name of ['settings.json', 'settings.local.json']) {
@@ -1207,11 +1238,15 @@ function showBridgeStatus() {
         if (parsed && typeof parsed === 'object' && 'statusLine' in parsed) {
           add('OVERRIDES US', `${p} also sets statusLine`);
         }
+        if (parsed && typeof parsed === 'object') { noteHookBlockers(p, parsed, false); }
       } catch {
         // Absent or unparseable project settings are not our problem to report.
       }
     }
   }
+  add('Hooks and status line', hookBlockers.length === 0
+    ? 'not switched off in any settings file we can read'
+    : `SWITCHED OFF — ${hookBlockers.join('; ')}. Claude Code then runs no custom status line, ours included`);
 
   try {
     const dir = path.join(claudeDir, 'fuel-gauge');
