@@ -114,7 +114,9 @@ Brain Drain asks before taking the slot, saves what was there, and can put it ba
 - **Brain Drain: Show Diagnostics** — read-only report if the gauge is dark.
 - `fuel-gauge.manageStatusLine` — set to `false` to keep Brain Drain away from your settings entirely.
 
-The two cannot run at the same time. That is a Claude Code limitation, not a choice I made.
+The bridge and your own status line cannot run at the same time. That is a Claude Code limitation, not a choice I made.
+
+**To keep your own status line,** choose **Not now** when Brain Drain asks, and install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the same figures to `~/.claude/fuel-gauge/` itself, and the gauge reads them from there: context percentage, cache countdown, model·effort and the usage limits.
 
 ## Requirements
 
@@ -140,7 +142,7 @@ The two cannot run at the same time. That is a Claude Code limitation, not a cho
 | `fuel-gauge.cacheWarningSeconds` | `null` (off) | Play 3 short beeps when the cache countdown drops below this many seconds. macOS only. Example: `180` for a 3-minute warning |
 | `fuel-gauge.effortStyle` | `text` | Model·effort item: `text` to show it, `off` to hide it |
 | `fuel-gauge.showUsage` | `true` | Show session/weekly usage in the hover, with the alert dot when a limit is high |
-| `fuel-gauge.manageStatusLine` | `true` | Let Brain Drain use Claude Code's status line slot. Set to `false` to keep Brain Drain out of `~/.claude/settings.json` entirely. The gauge then shows a warning icon that you can click to connect |
+| `fuel-gauge.manageStatusLine` | `true` | Let Brain Drain use Claude Code's status line slot. Set to `false` to keep Brain Drain out of `~/.claude/settings.json` entirely. Without the Brain Drain mod, the gauge then shows a warning icon that you can click to connect |
 
 To hide one item without hiding the rest, right-click the status bar. VS Code lists them as **Brain Drain: context**, **cache countdown**, **model and effort**, **usage alert** and **wrong folder**, and remembers what you switch off. No setting needed.
 
