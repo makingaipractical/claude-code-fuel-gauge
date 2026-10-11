@@ -1455,6 +1455,10 @@ function updateStatus() {
     cachedData = findMatchingSession();
     renderStatus();
   } catch {
+    // Drop the old reading too: the one-second timer redraws whatever is
+    // cached, so keeping it would bring back a frozen, healthy-looking
+    // number a second after the scan failed (#4951).
+    cachedData = undefined;
     statusBarItem.hide();
     cacheStatusBarItem.hide();
     usageStatusBarItem.hide();

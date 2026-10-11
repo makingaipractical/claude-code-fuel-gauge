@@ -1455,6 +1455,42 @@ async function run(name, fn) {
       over.window_implausible === true, String(over.window_implausible));
   });
 
+  // 31. A SCAN THAT THROWS MUST NOT FREEZE THE LAST READING (audit finding 8,
+  //     #4951). updateStatus() hid the items when the directory scan threw, but
+  //     left the old reading cached, and the one-second timer drew it again a
+  //     second later: a healthy-looking green that no longer updated.
+  await run('scan-throws-no-frozen-reading', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'live.json'), JSON.stringify({
+      cwd: ws, project_dir: ws, used_percentage: 42, remaining_percentage: 58,
+      context_unknown: false, total_input_tokens: 84000, total_output_tokens: 100,
+      context_window_size: 200000, model: 'claude-opus-5', session_id: 'live',
+      timestamp: Date.now() / 1000, detected_ttl: 3600, last_api_call_ts: 0,
+      rate_limit_5h_pct: -1, rate_limit_7d_pct: -1, effort_level: 'high',
+    }, null, 2));
+
+    ext.activate(ctx());
+    check('the reading is shown while the directory is readable',
+      barAt(100).visible === true && barAt(100).text.includes('42%'), barAt(100).text);
+
+    // readdirSync now throws EACCES, while existsSync still says the folder is there.
+    fs.chmodSync(fgDir, 0o000);
+    try {
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 1200));
+      check('a throwing scan does not leave the old reading on screen',
+        barAt(100).visible === false, `${barAt(100).visible} ${barAt(100).text}`);
+    } finally {
+      fs.chmodSync(fgDir, 0o755);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
