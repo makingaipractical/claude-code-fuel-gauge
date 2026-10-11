@@ -1150,6 +1150,30 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 24b. THE EXECUTION'S CWD COUNTS. VS Code gives each execution the cwd the
+  //      shell reported with that command, falling back to the terminal's
+  //      last one; terminal.shellIntegration.cwd is only the fallback and can
+  //      be unset when the start event fires. Reading only it misses the warning.
+  await run('wrong-folder-reads-execution-cwd', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    const other = path.join(TMPROOT, 'other-project');
+    fs.mkdirSync(ws, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+
+    const event = {
+      terminal: { shellIntegration: {} },
+      execution: { commandLine: { value: 'claude' }, cwd: { fsPath: other, path: other } },
+    };
+    shellStartListeners.forEach((fn) => fn(event));
+    check('a wrong folder known only from the execution still warns',
+      !!barAt(96) && barAt(96).visible === true);
+    fireExecutionEnd(event);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   // 25. AND STAYS QUIET WHEN THE MISMATCH IS ORDINARY. A start in a subfolder
   //     is how most people work, and in a multi-root workspace every open
   //     folder is the right folder. A warning that fires on either is noise

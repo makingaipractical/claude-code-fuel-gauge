@@ -506,7 +506,11 @@ function setupTerminalTracking(context: vscode.ExtensionContext) {
       // Read the folders now, not at activation: a multi-root workspace can
       // gain or lose a folder while the window is open.
       const folders = workspaceFolderPaths();
-      const terminalCwd = event.terminal.shellIntegration?.cwd?.fsPath;
+      // The execution's own cwd first: it is the directory the shell reported
+      // for this command. VS Code 1.141 builds it as (cwd sent with the start)
+      // ?? (terminal's last reported cwd), while shellIntegration.cwd is only
+      // the latter, so it can be unset or a prompt behind at this moment.
+      const terminalCwd = (event.execution.cwd ?? event.terminal.shellIntegration?.cwd)?.fsPath;
 
       if (folders.length > 0 && terminalCwd) {
         const relation = classifyAgainstWorkspace(terminalCwd, folders);
