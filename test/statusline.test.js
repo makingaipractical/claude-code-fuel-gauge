@@ -1483,6 +1483,55 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 32. A SESSION FILE THE BRAIN DRAIN MOD WROTE IS DRAWN LIKE THE BRIDGE'S
+  //     (#4918). When the bridge is not the status line, the mod writes the
+  //     session file itself. The fields below are the ones a live mod wrote on
+  //     11 October (Claude Code 2.1.296), with paths and times moved into the
+  //     sandbox; the README tells people who keep their own status line to rely
+  //     on this.
+  await run('mod-written-session-render', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: 'my-own-statusline' } }, null, 2) + '\n');
+    configStore.manageStatusLine = false; // "Not now" in the dialog: keep my own status line
+
+    const nowSec = Date.now() / 1000;
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.writeFileSync(path.join(fgDir, 'modsession.json'), JSON.stringify({
+      cwd: ws, project_dir: ws,
+      used_percentage: 18, remaining_percentage: 82,
+      context_unknown: false, window_implausible: false,
+      total_input_tokens: 179985, total_output_tokens: 301,
+      context_window_size: 1000000, model: 'claude-opus-5-5', session_id: 'modsession',
+      timestamp: nowSec,
+      cache_read_input_tokens: 181391, cache_creation_input_tokens: 389,
+      detected_ttl: 3600, last_api_call_ts: nowSec - 60,
+      rate_limit_5h_pct: 18, rate_limit_5h_reset: nowSec + 7200,
+      rate_limit_7d_pct: 36, rate_limit_7d_reset: nowSec + 200000,
+      effort_level: 'xhigh',
+      writer: 'mod',
+    }, null, 2));
+
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+
+    const context = barAt(100), cache = barAt(99), effort = barAt(98);
+    check('mod file: the context percentage is drawn',
+      context.visible === true && context.text === '$(claude)$(dashboard) 18%', context.text);
+    check('mod file: the cache countdown is drawn',
+      cache.visible === true && /^5[89]:[0-5]\d$/.test(cache.text), cache.text);
+    check('mod file: the model and effort are drawn',
+      effort.visible === true && effort.text === 'opus·x-high', effort.text);
+    const tip = String(context.tooltip && context.tooltip.value);
+    check('mod file: the hover carries both usage limits',
+      /Session limit \(5h\): 18% used/.test(tip) && /Weekly limit \(all models\): 36% used/.test(tip), tip);
+    check('the user\'s own status line is left in place',
+      readSettings().statusLine.command === 'my-own-statusline', JSON.stringify(readSettings().statusLine));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
