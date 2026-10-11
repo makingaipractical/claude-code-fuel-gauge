@@ -6,7 +6,7 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 
 - The gauge no longer freezes on its last reading when Brain Drain cannot read its session folder. It used to hide for a second and then draw the old number again, so a gauge that had stopped updating looked healthy.
 - After **Restore Previous Status Line**, the readouts go dark as the dialog says they will, instead of showing the bridge's last reading for up to 36 hours. A reading written after the restore still shows.
-- **Show Diagnostics** names `disableAllHooks` or `allowManagedHooksOnly` when either is set, and the settings file that sets it. Both switch a custom status line off without a word. Policies set by device management or by a server are not files, so a clean line here does not rule them out.
+- **Show Diagnostics** names `disableAllHooks` or `allowManagedHooksOnly` when either is set, and the settings file that sets it. Either one turns a custom status line off. Policies set by device management or by a server are not files, so a clean line here does not rule them out.
 - **Show Diagnostics** reuses one entry in the Output panel instead of adding a new one each time it runs.
 - Upgrading no longer leaves a copy of the previous bridge as `context-bridge.sh.fuel-gauge.orig`. A bridge you edited by hand is still copied aside before it is replaced. Bridges installed before this version carry no mark of being ours, so the first upgrade copies one aside a last time.
 - The bridge starts Python once per update instead of twice, and refuses a session id that is not a plain file name.
