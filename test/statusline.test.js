@@ -1150,8 +1150,8 @@ async function run(name, fn) {
   // 24. THE WRONG FOLDER, SAID OUT LOUD (#3013). A `claude` started in a
   //     terminal whose directory this window does not have open used to be
   //     dropped in silence — the extension returned from the listener and the
-  //     window simply showed no gauge, which is exactly how Metaconductor
-  //     #3008 happened. It must now say so in red.
+  //     window simply showed no gauge, and the user had no way to tell why.
+  //     It must now say so in red.
   await run('wrong-folder-warns', async (ext) => {
     const ws = path.join(TMPROOT, 'work');
     const other = path.join(TMPROOT, 'other-project');
@@ -1213,7 +1213,7 @@ async function run(name, fn) {
   // 25. AND STAYS QUIET WHEN THE MISMATCH IS ORDINARY. A start in a subfolder
   //     is how most people work, and in a multi-root workspace every open
   //     folder is the right folder. A warning that fires on either is noise
-  //     Julian learns to ignore, which costs more than not having it.
+  //     people learn to ignore, which costs more than not having it.
   await run('wrong-folder-quiet-when-legitimate', async (ext) => {
     const ws = path.join(TMPROOT, 'work');
     const sub = path.join(ws, 'src', 'deep');
@@ -1322,7 +1322,7 @@ async function run(name, fn) {
 
     // exceeds_200k_tokens is only evidence against a window reported at or
     // below 200k. A 1M window past 200k is ordinary — 1M is generally
-    // available — and flagging it would fire on every long session Julian runs.
+    // available — and flagging it would fire on every long 1M session.
     execFileSync('bash', [bridgePath()], {
       input: JSON.stringify({
         session_id: 'big-window', cwd: '/w', workspace: { project_dir: '/w' },
