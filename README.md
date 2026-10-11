@@ -97,7 +97,7 @@ Claude Code has a [statusline feature](https://code.claude.com/docs/en/statuslin
 
 Everything — context, cache, model, effort, usage limits — rides that same local feed. No network calls, no API keys, no accounts.
 
-Works for sessions in Anthropic's Claude Code extension for VS Code and for `claude` sessions in the integrated terminal.
+Works for `claude` sessions in a terminal, including VS Code's integrated terminal. Sessions in the chat panel of Anthropic's Claude Code extension do not run the status line, so Brain Drain cannot see them (checked on Claude Code 2.1.296).
 
 ### The status line slot, and what Brain Drain writes
 
