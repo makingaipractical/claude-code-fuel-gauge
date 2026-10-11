@@ -399,6 +399,14 @@ let pollTimer: NodeJS.Timeout | undefined;
 let countdownTimer: NodeJS.Timeout | undefined;
 let cleanupTimer: NodeJS.Timeout | undefined;
 let cachedData: ContextStatus | undefined;
+// When the user last ran Restore (seconds since the epoch, 0 = never). A session
+// file written before it came from our bridge, which no longer runs once Claude
+// Code restarts, so it is history, not a reading: without this the readouts
+// stayed lit for up to 36 hours after the modal promised they would go dark
+// (#4952). A file written after it is current: a Claude Code not yet restarted,
+// or the Brain Drain mod writing in our place.
+let restoredAt = 0;
+const RESTORED_AT_KEY = 'fuel-gauge.restoredAt';
 let lastBeepedCycleKey: string | undefined;
 const DEFAULT_TTL = 300;
 const META_FILES = new Set(['config.json', 'account_ttl.json']);
@@ -664,6 +672,7 @@ function writeBridgeConfig() {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  restoredAt = context.globalState.get<number>(RESTORED_AT_KEY, 0) || 0;
   const bridge = installBridgeScript();
   if (bridge === 'absent') {
     void vscode.window.showWarningMessage(
@@ -1174,6 +1183,10 @@ async function restoreStatusLine(context: vscode.ExtensionContext, silent = fals
     .update('manageStatusLine', false, vscode.ConfigurationTarget.Global);
   statusLineOwner = 'optout';
   foreignCommand = backup.previousCommandString;
+  restoredAt = Date.now() / 1000;
+  await context.globalState.update(RESTORED_AT_KEY, restoredAt);
+  releaseTracking();
+  updateStatus();
 
   void vscode.window.showInformationMessage(
     'Brain Drain: previous status line restored. Restart Claude Code to apply.'
@@ -1511,7 +1524,8 @@ function findMatchingSession(): ContextStatus | undefined {
 
 function updateStatus() {
   try {
-    cachedData = findMatchingSession();
+    const found = findMatchingSession();
+    cachedData = found && found.timestamp <= restoredAt ? undefined : found;
     renderStatus();
   } catch {
     // Drop the old reading too: the one-second timer redraws whatever is

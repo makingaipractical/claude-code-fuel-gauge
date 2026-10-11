@@ -1557,6 +1557,61 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 33. AFTER RESTORE THE READOUTS GO DARK (#4952, item 2). The modal promises
+  //     it; session files the bridge wrote before Restore used to keep the
+  //     gauge lit for up to 36 hours. A file written after Restore (a Claude
+  //     Code not yet restarted, or the mod) is current and still shows.
+  await run('restore-goes-dark', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      statusLine: { type: 'command', command: '/usr/local/bin/ccstatusline' },
+    }, null, 2) + '\n');
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    const session = (id, pct, ts) => fs.writeFileSync(path.join(fgDir, id + '.json'), JSON.stringify({
+      cwd: ws, project_dir: ws, used_percentage: pct, remaining_percentage: 100 - pct,
+      context_unknown: false, total_input_tokens: 84000, total_output_tokens: 100,
+      context_window_size: 200000, model: 'claude-opus-5', session_id: id,
+      timestamp: ts, detected_ttl: 3600, last_api_call_ts: 0,
+      rate_limit_5h_pct: -1, rate_limit_7d_pct: -1, effort_level: 'high',
+    }, null, 2));
+    session('before', 42, Date.now() / 1000 - 5);
+
+    const c = ctx();
+    answers = ['Replace'];
+    ext.activate(c);
+    await new Promise((r) => setTimeout(r, 80));
+    check('the reading is shown while we own the slot',
+      barAt(100).visible === true && barAt(100).text.includes('42%'), barAt(100).text);
+
+    answers = ['Restore'];
+    await registered['fuel-gauge.restoreStatusLine']();
+    await new Promise((r) => setTimeout(r, 1100));
+    check('after Restore the old reading is gone from the bar',
+      !barAt(100).text.includes('42%') && barAt(99).visible === false,
+      `${barAt(100).visible} ${barAt(100).text} / cache ${barAt(99).visible}`);
+
+    session('after', 17, Date.now() / 1000 + 1);
+    fireConfigChange();
+    await new Promise((r) => setTimeout(r, 60));
+    check('a session file written after Restore is shown',
+      barAt(100).visible === true && barAt(100).text.includes('17%'), barAt(100).text);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+
+    // A reload must not bring the old file back: the moment is kept in globalState.
+    fs.unlinkSync(path.join(fgDir, 'after.json'));
+    bars = [];
+    delete require.cache[OUT];
+    const again = require(OUT);
+    again.activate(c);
+    await new Promise((r) => setTimeout(r, 60));
+    check('after a reload the pre-Restore file stays dark',
+      !barAt(100).text.includes('42%'), barAt(100).text);
+    if (typeof again.deactivate === 'function') { again.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
