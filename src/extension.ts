@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn, execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 
 interface ContextStatus {
   cwd: string;
@@ -792,6 +793,25 @@ function claudePaths() {
 //   'absent'    — no bridge script at all; nothing will update
 type BridgeInstall = 'installed' | 'stale' | 'absent';
 
+// The bridge is written with a stamp on its second line: a hash of every
+// other line. A file whose stamp still matches its content is an unedited
+// bridge of ours, whatever version wrote it, so an upgrade replaces it without
+// copying it aside (#4945). Bridges written before the stamp existed carry none and are
+// copied once more on the first upgrade; nothing can tell them from an edit.
+const BRIDGE_STAMP = '# Written by Brain Drain for Claude Code; edits are kept aside on update. sha256 ';
+const bridgeHash = (lines: string[]) => createHash('sha256').update(lines.join('\n')).digest('hex');
+function stampBridge(script: string): string {
+  const lines = script.split('\n');
+  return [lines[0], BRIDGE_STAMP + bridgeHash(lines), ...lines.slice(1)].join('\n');
+}
+function isUneditedOwnBridge(text: string): boolean {
+  const lines = text.split('\n');
+  const stamp = lines[1] ?? '';
+  if (!stamp.startsWith(BRIDGE_STAMP)) { return false; }
+  return stamp.slice(BRIDGE_STAMP.length) === bridgeHash([lines[0], ...lines.slice(2)]);
+}
+const STAMPED_BRIDGE = stampBridge(BRIDGE_SCRIPT);
+
 function installBridgeScript(): BridgeInstall {
   const { scriptsDir, bridgePath } = claudePaths();
 
@@ -805,7 +825,7 @@ function installBridgeScript(): BridgeInstall {
     if (fs.existsSync(bridgePath)) {
       const onDisk = fs.readFileSync(bridgePath, 'utf-8');
       const origPath = bridgePath + '.fuel-gauge.orig';
-      if (onDisk !== BRIDGE_SCRIPT && !fs.existsSync(origPath)) {
+      if (onDisk !== STAMPED_BRIDGE && !isUneditedOwnBridge(onDisk) && !fs.existsSync(origPath)) {
         fs.copyFileSync(bridgePath, origPath);
       }
     }
@@ -814,7 +834,7 @@ function installBridgeScript(): BridgeInstall {
   }
 
   try {
-    fs.writeFileSync(bridgePath, BRIDGE_SCRIPT, { mode: 0o755 });
+    fs.writeFileSync(bridgePath, STAMPED_BRIDGE, { mode: 0o755 });
     return 'installed';
   } catch {
     return fs.existsSync(bridgePath) ? 'stale' : 'absent';
@@ -1176,7 +1196,7 @@ function showBridgeStatus() {
   try {
     const st = fs.statSync(bridgePath);
     add('Bridge script', `present, modified ${st.mtime.toISOString()}`);
-    add('Bridge matches this version', fs.readFileSync(bridgePath, 'utf-8') === BRIDGE_SCRIPT ? 'yes' : 'NO');
+    add('Bridge matches this version', fs.readFileSync(bridgePath, 'utf-8') === STAMPED_BRIDGE ? 'yes' : 'NO');
   } catch {
     add('Bridge script', 'MISSING');
   }

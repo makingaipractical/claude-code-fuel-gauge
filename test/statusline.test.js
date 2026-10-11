@@ -297,6 +297,35 @@ async function run(name, fn) {
     check('orig holds the user edits', fs.readFileSync(bp + '.fuel-gauge.orig', 'utf-8').includes('my own edits'));
   });
 
+  // 10b. OUR OWN OLDER BRIDGE IS NOT A HAND EDIT (#4945). Every version bump
+  //      used to copy the previous version aside as .fuel-gauge.orig, because
+  //      "differs from this version" was the only test. An unedited bridge
+  //      from a stamped earlier version is replaced without a copy.
+  await run('bridge-upgrade-no-orig', async (ext) => {
+    const bp = bridgePath();
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const lines = fs.readFileSync(bp, 'utf-8').split('\n');
+    const stamp = lines[1] || '';
+    check('the installed bridge carries a hash stamp on its second line',
+      /[0-9a-f]{64}$/.test(stamp), stamp);
+    // Forge "an older version": different body, stamped the same way.
+    const prefix = stamp.replace(/[0-9a-f]{64}$/, '');
+    const older = [lines[0], '# an older version of our bridge', 'exit 0', ''];
+    const hash = require('crypto').createHash('sha256')
+      .update([older[0], ...older.slice(1)].join('\n')).digest('hex');
+    fs.writeFileSync(bp, [older[0], prefix + hash, ...older.slice(1)].join('\n'), { mode: 0o755 });
+
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    check('an unedited older bridge of ours is not copied aside',
+      !fs.existsSync(bp + '.fuel-gauge.orig'));
+    check('and is replaced by this version',
+      !fs.readFileSync(bp, 'utf-8').includes('an older version of our bridge'));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   // 11. CONTEXT PERCENTAGE — the bridge passes Claude Code's own number through untouched,
   //     and only computes one itself when the payload carries none.
   await run('context-percentage', async (ext) => {
