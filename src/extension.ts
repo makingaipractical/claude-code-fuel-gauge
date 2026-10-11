@@ -43,14 +43,17 @@ BD_DIR="$HOME/.claude/fuel-gauge"
 BD_LOG="$BD_DIR/bridge.log"
 mkdir -p "$BD_DIR"
 
-session_id=$(echo "$input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>>"$BD_LOG")
+# -I keeps the session's working folder off Python's import path. Claude Code
+# runs this script from the project folder, so without it a json.py there would
+# run on every update (#4953).
+session_id=$(echo "$input" | python3 -I -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>>"$BD_LOG")
 
 if [ -z "$session_id" ]; then
   echo "[$(date -Iseconds)] No session_id in input" >> "$BD_LOG"
   exit 0
 fi
 
-echo "$input" | BD_SESSION_ID="$session_id" BD_DIR="$BD_DIR" python3 -c "
+echo "$input" | BD_SESSION_ID="$session_id" BD_DIR="$BD_DIR" python3 -I -c "
 import sys, json, time, os, calendar
 
 data = json.load(sys.stdin)

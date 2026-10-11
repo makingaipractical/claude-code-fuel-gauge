@@ -1455,6 +1455,34 @@ async function run(name, fn) {
       over.window_implausible === true, String(over.window_implausible));
   });
 
+  // 31. THE PROJECT FOLDER'S OWN PYTHON FILES NEVER RUN (#4953, #4959). Claude
+  //     Code runs the bridge from the session's folder, and python3 -c puts that
+  //     folder first on the import path: a json.py in a cloned repository ran
+  //     on every status-line update. Both of the bridge's python3 starts import
+  //     json, so both need -I.
+  await run('bridge-ignores-cwd-modules', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    const repo = path.join(TMPROOT, 'cloned-repo');
+    const marker = path.join(TMPROOT, 'planted-ran');
+    fs.mkdirSync(repo, { recursive: true });
+    fs.writeFileSync(path.join(repo, 'json.py'), `open(${JSON.stringify(marker)}, 'w').write('ran')\n`);
+    try {
+      execFileSync('bash', [bridgePath()], {
+        cwd: repo,
+        input: JSON.stringify({ session_id: 'planted', cwd: repo, workspace: { project_dir: repo },
+          context_window: { context_window_size: 200000, used_percentage: 33 } }),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+    } catch { /* the old bridge fails here; the checks below say how */ }
+    check('a json.py in the session folder is not imported', !fs.existsSync(marker));
+    const file = path.join(TMPROOT, '.claude', 'fuel-gauge', 'planted.json');
+    check('and the session file is still written',
+      fs.existsSync(file) && JSON.parse(fs.readFileSync(file, 'utf-8')).used_percentage === 33);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
