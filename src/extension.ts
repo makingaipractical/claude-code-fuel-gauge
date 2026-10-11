@@ -38,23 +38,32 @@ const BRIDGE_SCRIPT = `#!/bin/bash
 # Brain Drain for Claude Code — Context Bridge
 # Reads statusline JSON from stdin, writes to ~/.claude/fuel-gauge/{session_id}.json
 
-input=$(cat)
-
 BD_DIR="$HOME/.claude/fuel-gauge"
 BD_LOG="$BD_DIR/bridge.log"
 mkdir -p "$BD_DIR"
 
-session_id=$(echo "$input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>>"$BD_LOG")
+# One python3 start per update. It reads the payload straight from stdin, finds
+# the session id itself and writes the session file atomically; a second start
+# used to exist only to read session_id, and doubled the bridge's time (#4952).
+BD_DIR="$BD_DIR" BD_LOG="$BD_LOG" python3 -c "
+import sys, json, time, os, calendar, datetime
 
-if [ -z "$session_id" ]; then
-  echo "[$(date -Iseconds)] No session_id in input" >> "$BD_LOG"
-  exit 0
-fi
-
-echo "$input" | BD_SESSION_ID="$session_id" BD_DIR="$BD_DIR" python3 -c "
-import sys, json, time, os, calendar
+def log(message):
+    stamp = datetime.datetime.now().astimezone().isoformat(timespec='seconds')
+    with open(os.environ['BD_LOG'], 'a') as f:
+        print('[' + stamp + '] ' + message, file=f)
 
 data = json.load(sys.stdin)
+session_id = data.get('session_id', '') if isinstance(data, dict) else ''
+if not session_id:
+    log('No session_id in input')
+    sys.exit(0)
+# The id becomes a file name, so it must be one: no path separators, no dot
+# names (audit finding 17).
+if (not isinstance(session_id, str) or os.path.basename(session_id) != session_id
+        or session_id.startswith('.')):
+    log('Unusable session_id in input; nothing written')
+    sys.exit(0)
 cw = data.get('context_window', {})
 cu = cw.get('current_usage') or {}
 window_size = cw.get('context_window_size', 200000) or 200000
@@ -112,7 +121,6 @@ project_dir = ws.get('project_dir', '') or data.get('cwd', '')
 
 # Cache TTL detection — read previous file for prior state
 bd_dir = os.environ.get('BD_DIR', '')
-session_id = os.environ.get('BD_SESSION_ID', '')
 prev_total_in = 0
 prev_detected_ttl = 0
 prev_last_api_call_ts = 0
@@ -380,8 +388,21 @@ output = {
     'effort_level': effort_level,
 }
 
-print(json.dumps(output, indent=2))
-" > "$BD_DIR/$session_id.json.$$.tmp" 2>>"$BD_LOG" && mv "$BD_DIR/$session_id.json.$$.tmp" "$BD_DIR/$session_id.json"
+# Written beside the target under a per-process name, then renamed into place:
+# a reader never sees half a file, and two overlapping runs never share a temp.
+session_path = os.path.join(bd_dir, session_id + '.json')
+tmp_path = session_path + '.' + str(os.getpid()) + '.tmp'
+try:
+    with open(tmp_path, 'w') as f:
+        f.write(json.dumps(output, indent=2) + chr(10))
+    os.replace(tmp_path, session_path)
+except Exception:
+    try:
+        os.unlink(tmp_path)
+    except Exception:
+        pass
+    raise
+" 2>>"$BD_LOG"
 `;
 
 let statusBarItem: vscode.StatusBarItem;

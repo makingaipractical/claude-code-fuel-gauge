@@ -1612,6 +1612,53 @@ async function run(name, fn) {
     if (typeof again.deactivate === 'function') { again.deactivate(); }
   });
 
+  // 34. ONE PYTHON START PER BRIDGE RUN (#4952, item 3). The bridge started
+  //     python3 a first time only to read session_id, about 26 ms per update.
+  //     A python3 wrapper first on PATH counts the starts.
+  await run('bridge-one-python-start', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    const realPython = execFileSync('bash', ['-c', 'command -v python3']).toString().trim();
+    const binDir = path.join(TMPROOT, 'bin');
+    const counter = path.join(TMPROOT, 'python-starts');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(path.join(binDir, 'python3'),
+      `#!/bin/bash\necho start >> "${counter}"\nexec "${realPython}" "$@"\n`, { mode: 0o755 });
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const runBridge = (payload) => {
+      try { fs.unlinkSync(counter); } catch { /* first run */ }
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify(payload),
+        env: { ...process.env, HOME: TMPROOT, PATH: binDir + ':' + process.env.PATH },
+      });
+      return fs.existsSync(counter) ? fs.readFileSync(counter, 'utf-8').trim().split('\n').length : 0;
+    };
+
+    const starts = runBridge({
+      session_id: 'one-start', cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: { context_window_size: 200000, used_percentage: 21 },
+    });
+    check('a bridge run starts python3 once', starts === 1, String(starts));
+    const written = JSON.parse(fs.readFileSync(path.join(fgDir, 'one-start.json'), 'utf-8'));
+    check('and still writes the session file', written.used_percentage === 21, String(written.used_percentage));
+    check('leaving no temp file behind', fs.readdirSync(fgDir).every((f) => !f.endsWith('.tmp')),
+      fs.readdirSync(fgDir).join(' '));
+
+    runBridge({ cwd: '/w', context_window: {} });
+    const logText = () => fs.readFileSync(path.join(fgDir, 'bridge.log'), 'utf-8');
+    check('a payload without session_id is logged, not written',
+      logText().includes('No session_id in input') &&
+      fs.readdirSync(fgDir).filter((f) => f.endsWith('.json')).sort().join(' ') === 'config.json one-start.json',
+      fs.readdirSync(fgDir).join(' '));
+
+    runBridge({ session_id: '../escaped', cwd: '/w', context_window: {} });
+    check('a session_id that is a path writes nothing outside the folder',
+      !fs.existsSync(path.join(TMPROOT, '.claude', 'escaped.json')) && logText().includes('Unusable session_id'),
+      logText());
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
