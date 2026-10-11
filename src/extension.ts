@@ -288,6 +288,19 @@ try:
 except Exception:
     transcript_ttl, transcript_time = 0, 0
 
+# Claude Code 2.1.296's own bundle puts a prompt_cache object in this payload
+# (ttl '5m' or '1h', expires_at in epoch seconds) once the session has made a
+# request (#4955). Not seen in a live payload yet, so it is only recorded beside
+# the transcript's answer, for a later comparison, and nothing reads it.
+payload_cache_ttl = 0
+payload_cache_expires_at = 0
+pc = data.get('prompt_cache')
+if isinstance(pc, dict):
+    payload_cache_ttl = {'5m': 300, '1h': 3600}.get(pc.get('ttl'), 0)
+    ea = pc.get('expires_at')
+    if isinstance(ea, (int, float)) and not isinstance(ea, bool):
+        payload_cache_expires_at = int(ea)
+
 # The transcript is the answer whenever it has one. detection_time stays 0
 # unless this update actually observed something, because only a real
 # observation is allowed to speak for the whole account further down.
@@ -389,6 +402,8 @@ output = {
     'rate_limit_7d_pct': rate_limit_7d_pct,
     'rate_limit_7d_reset': rate_limit_7d_reset,
     'effort_level': effort_level,
+    'payload_cache_ttl': payload_cache_ttl,
+    'payload_cache_expires_at': payload_cache_expires_at,
 }
 
 # Written beside the target under a per-process name, then renamed into place:

@@ -1686,6 +1686,37 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 36. THE PAYLOAD'S prompt_cache IS RECORDED, NOT YET USED (#4955). Claude
+  //     Code 2.1.296's bundle builds it into the status-line payload; the
+  //     bridge keeps what it says beside the transcript's answer, so live
+  //     sessions can show whether the two agree before either replaces the other.
+  await run('bridge-records-payload-prompt-cache', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const runBridge = (payload) => {
+      execFileSync('bash', [bridgePath()], { input: JSON.stringify(payload), env: { ...process.env, HOME: TMPROOT } });
+      return JSON.parse(fs.readFileSync(path.join(fgDir, payload.session_id + '.json'), 'utf-8'));
+    };
+    const base = { cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: { context_window_size: 200000, used_percentage: 12 } };
+    const withCache = runBridge({ ...base, session_id: 'pc-1h',
+      prompt_cache: { warm: true, ttl: '1h', expires_at: 1791000000, requests: 3 } });
+    check('a 1h prompt_cache is recorded as 3600',
+      withCache.payload_cache_ttl === 3600 && withCache.payload_cache_expires_at === 1791000000,
+      `${withCache.payload_cache_ttl} ${withCache.payload_cache_expires_at}`);
+    const without = runBridge({ ...base, session_id: 'pc-none' });
+    check('and does not change the detected TTL', withCache.detected_ttl === without.detected_ttl,
+      `${withCache.detected_ttl} vs ${without.detected_ttl}`);
+    check('no prompt_cache records 0', without.payload_cache_ttl === 0 && without.payload_cache_expires_at === 0,
+      `${without.payload_cache_ttl} ${without.payload_cache_expires_at}`);
+    const odd = runBridge({ ...base, session_id: 'pc-odd', prompt_cache: { ttl: 3600, expires_at: 'soon' } });
+    check('an unexpected shape records 0, never crashes the bridge',
+      odd.payload_cache_ttl === 0 && odd.payload_cache_expires_at === 0, JSON.stringify(odd));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
