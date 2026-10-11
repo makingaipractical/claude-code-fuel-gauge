@@ -89,6 +89,7 @@ used_raw = cw.get('used_percentage')
 if isinstance(used_raw, (int, float)) and not isinstance(used_raw, bool):
     used_pct = float(used_raw)
     remaining_pct = max(0.0, 100.0 - used_pct)
+    check_pct = used_pct
 elif total > 0 and window_size > 0:
     # Fallback only. systemOverhead, if the user set one, is subtracted here.
     # Not clamped to 100: a figure above 100 is how the plausibility check
@@ -96,9 +97,13 @@ elif total > 0 and window_size > 0:
     effective_window = max(1, window_size - overhead)
     used_pct = total * 100.0 / effective_window
     remaining_pct = max(0.0, 100.0 - used_pct)
+    # The plausibility check tests this figure instead: the same tokens over
+    # the window Claude Code reported, with no overhead taken off it.
+    check_pct = total * 100.0 / window_size
 else:
     used_pct = 0
     remaining_pct = 100
+    check_pct = 0
 
 # Use workspace.project_dir (stable launch dir) with cwd as fallback
 ws = data.get('workspace', {})
@@ -111,6 +116,7 @@ prev_total_in = 0
 prev_detected_ttl = 0
 prev_last_api_call_ts = 0
 prev_used_pct = 0
+prev_window_implausible = False
 if bd_dir and session_id:
     prev_file = os.path.join(bd_dir, session_id + '.json')
     try:
@@ -120,6 +126,7 @@ if bd_dir and session_id:
             prev_detected_ttl = prev.get('detected_ttl', 0) or 0
             prev_last_api_call_ts = prev.get('last_api_call_ts', 0) or 0
             prev_used_pct = prev.get('used_percentage', 0) or 0
+            prev_window_implausible = prev.get('window_implausible') is True
     except Exception:
         pass
 
@@ -243,7 +250,14 @@ if (inp + out + cache_create + cache_read) == 0 and total_in_now == 0 and prev_u
 window_implausible = False
 if window_size > 0 and total_in_now > window_size:
     window_implausible = True
-if used_pct > 100:
+# check_pct, not used_pct: in the fallback used_pct has the deprecated
+# systemOverhead taken off the window, so it can pass 100 while the window
+# Claude Code reported is fine, and the hover would then call our own
+# subtraction impossible. A held reading (context_unknown) has no fresh
+# figures to test, so it keeps the verdict it was given when it was measured.
+if context_unknown:
+    window_implausible = prev_window_implausible
+elif check_pct > 100:
     window_implausible = True
 # Free cross-check the payload already carries. Valid only when the flag is
 # actually present and true; when Claude Code omits it, it says nothing either

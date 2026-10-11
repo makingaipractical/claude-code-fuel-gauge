@@ -1406,6 +1406,55 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 30. OUR OWN SUBTRACTION IS NOT CLAUDE CODE'S CONTRADICTION. The fallback
+  //     still subtracts the deprecated systemOverhead, so with one set and the
+  //     tokens just inside the window the shown figure passes 100 while the
+  //     window Claude Code reported is fine. Flagging that would make the hover
+  //     say "cannot be true" about a number we made. The check must test the
+  //     un-subtracted figure; the shown one stays as computed.
+  await run('implausible-window-ignores-overhead', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    // Activation writes systemOverhead 0, so the old user setting goes in after.
+    fs.writeFileSync(path.join(fgDir, 'config.json'),
+      JSON.stringify({ systemOverhead: 20000 }, null, 2));
+
+    const feed = (id, tokens) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify({
+          session_id: id, cwd: '/w', workspace: { project_dir: '/w' },
+          context_window: {
+            context_window_size: 200000, total_input_tokens: tokens,
+            current_usage: { input_tokens: 0, output_tokens: 0,
+              cache_creation_input_tokens: 0, cache_read_input_tokens: tokens },
+          },
+        }),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(path.join(fgDir, id + '.json'), 'utf-8'));
+    };
+
+    const inside = feed('overhead-inside', 190000);
+    check('tokens inside the window are not flagged because of our overhead',
+      inside.window_implausible === false, String(inside.window_implausible));
+    check('and the shown fallback figure is left as computed, not clamped',
+      Math.round(inside.used_percentage) === 106, String(inside.used_percentage));
+
+    // After /compact the bridge holds the last figure (context_unknown). It has
+    // nothing fresh to test, so it keeps the verdict the figure was given.
+    const held = feed('overhead-inside', 0);
+    check('a held reading over 100 by our overhead is still not flagged',
+      held.context_unknown === true && held.window_implausible === false,
+      `${held.context_unknown} ${held.window_implausible}`);
+
+    const over = feed('overhead-over', 210000);
+    check('tokens past the window are still flagged with an overhead set',
+      over.window_implausible === true, String(over.window_implausible));
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
