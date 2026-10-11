@@ -1331,6 +1331,57 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 29. THE FALLBACK PATH, AND A HOVER THAT ONLY CLAIMS WHAT HOLDS. When Claude
+  //     Code sends no used_percentage the bridge computes one; it used to cap
+  //     that at 100, the one silent clamp #3070 left behind. And when only the
+  //     exceeds_200k_tokens cross-check fired, the hover said "a window of
+  //     200,000 holding 150,000, which cannot be true" — no contradiction at all.
+  await run('implausible-window-fallback-and-wording', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({
+        session_id: 'no-pct', cwd: '/w', workspace: { project_dir: '/w' },
+        context_window: {
+          context_window_size: 200000, total_input_tokens: 276000,
+          current_usage: { input_tokens: 6000, output_tokens: 0,
+            cache_creation_input_tokens: 20000, cache_read_input_tokens: 250000 },
+        },
+      }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const noPct = JSON.parse(fs.readFileSync(path.join(fgDir, 'no-pct.json'), 'utf-8'));
+    check('a computed fallback percentage is not clamped to 100',
+      Math.round(noPct.used_percentage) === 138, String(noPct.used_percentage));
+    check('and is flagged unreliable', noPct.window_implausible === true,
+      String(noPct.window_implausible));
+
+    fs.writeFileSync(path.join(fgDir, 'xcheck.json'), JSON.stringify({
+      cwd: ws, project_dir: ws, used_percentage: 75, remaining_percentage: 25,
+      context_unknown: false, window_implausible: true,
+      total_input_tokens: 150000, total_output_tokens: 100,
+      context_window_size: 200000, model: 'claude-opus-5', session_id: 'xcheck',
+      timestamp: Date.now() / 1000, detected_ttl: 3600, last_api_call_ts: 0,
+      rate_limit_5h_pct: -1, rate_limit_7d_pct: -1, effort_level: 'high',
+    }, null, 2));
+    ext.activate(ctx());
+    // Two activations in this scenario: read the newest context item.
+    const context = bars.filter((b) => b.priority === 100).pop();
+    const tip = String(context && context.tooltip && context.tooltip.value);
+    check('the cross-check reading is rendered unreliable', tip.includes('unreliable'), tip);
+    check('a cross-check flag does not claim the window holds too many tokens',
+      !tip.includes('holding'), tip);
+    check('it names the contradiction that does hold', tip.includes('past 200,000'), tip);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

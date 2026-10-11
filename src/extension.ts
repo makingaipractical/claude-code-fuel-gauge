@@ -91,8 +91,10 @@ if isinstance(used_raw, (int, float)) and not isinstance(used_raw, bool):
     remaining_pct = max(0.0, 100.0 - used_pct)
 elif total > 0 and window_size > 0:
     # Fallback only. systemOverhead, if the user set one, is subtracted here.
+    # Not clamped to 100: a figure above 100 is how the plausibility check
+    # below (#3070) learns the window is wrong, and it is shown as computed.
     effective_window = max(1, window_size - overhead)
-    used_pct = min(100.0, total * 100.0 / effective_window)
+    used_pct = total * 100.0 / effective_window
     remaining_pct = max(0.0, 100.0 - used_pct)
 else:
     used_pct = 0
@@ -1513,6 +1515,28 @@ const COLOR_RED = new vscode.ThemeColor('charts.red');
 const COLOR_YELLOW = new vscode.ThemeColor('charts.yellow');
 const COLOR_GREEN = new vscode.ThemeColor('charts.green');
 
+// The bridge raises window_implausible on any of three checks (#3070). The
+// hover must name the contradiction that actually holds: "a window of 200,000
+// holding 150,000" is no contradiction at all, and saying "cannot be true"
+// beside it would make the warning itself the unreliable reading. Derived here
+// from the stored figures, so the session file needs no extra field.
+function implausibleReason(data: ContextStatus): string {
+  const win = data.context_window_size ?? 0;
+  const tokens = data.total_input_tokens ?? 0;
+  if (win > 0 && tokens > win) {
+    return `Claude Code reports a context window of ${win.toLocaleString()} tokens ` +
+      `holding ${tokens.toLocaleString()}, which cannot be true`;
+  }
+  if ((data.used_percentage ?? 0) > 100) {
+    return `The reading puts this session at ${Math.round(data.used_percentage)}% of a ` +
+      `${win.toLocaleString()}-token window, which cannot be true`;
+  }
+  // Only the exceeds_200k_tokens cross-check is left: Claude Code says the
+  // session is past 200,000 tokens yet reports a window no larger than that.
+  return `Claude Code says this session is past 200,000 tokens but reports a context ` +
+    `window of ${win.toLocaleString()}, which cannot both be true`;
+}
+
 function severityColor(sev: number): vscode.ThemeColor {
   if (sev >= 2) { return COLOR_RED; }
   if (sev >= 1) { return COLOR_YELLOW; }
@@ -1758,11 +1782,9 @@ function renderStatus() {
     ? 'Context reading paused: Claude Code reports an empty window right after /compact. ' +
       'The number updates on your next turn.'
     : windowImplausible
-      ? `Context&nbsp;${pct}% — unreliable. Claude Code reports a context window of ` +
-        `${data.context_window_size.toLocaleString()} tokens holding ` +
-        `${(data.total_input_tokens ?? 0).toLocaleString()}, which cannot be true ` +
-        `([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). ` +
-        'The percentage is shown as Claude Code gave it, not corrected.'
+      ? `Context&nbsp;${pct}% — unreliable. ${implausibleReason(data)} ` +
+        '([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). ' +
+        'The percentage is shown uncorrected.'
       : `Context&nbsp;${pct}%`;
 
   // Main item: context percentage only. The cache countdown is a separate item
