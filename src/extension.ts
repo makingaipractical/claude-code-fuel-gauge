@@ -46,8 +46,8 @@ mkdir -p "$BD_DIR"
 # the session id itself and writes the session file atomically; a second start
 # used to exist only to read session_id, and doubled the bridge's time (#4952).
 # -I keeps the session's working folder off the import path: Claude Code runs
-# this from the project folder, so a json.py there ran on every update, and a
-# folder macOS will not let Python list killed the run (#4953, from bridge.log).
+# this from the project folder, so a json.py there ran on every update (#4953).
+# bridge.log also holds PermissionErrors raised while Python searched that path.
 BD_DIR="$BD_DIR" BD_LOG="$BD_LOG" python3 -I -c "
 import sys, json, time, os, calendar, datetime
 

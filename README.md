@@ -202,4 +202,4 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 
 The full change-by-change record is in [CHANGELOG.md](CHANGELOG.md). Previously released as BrainDrain CC (v0.1.0–v0.4.4).
 
-This page was written by Claude (Fable) and me. Brain Drain itself was developed with Claude Code.
+This page was written by Claude and me. Brain Drain itself was developed with Claude Code.
