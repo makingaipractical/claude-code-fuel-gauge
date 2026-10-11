@@ -129,6 +129,7 @@ prev_detected_ttl = 0
 prev_last_api_call_ts = 0
 prev_used_pct = 0
 prev_window_implausible = False
+prev_writer = None
 if bd_dir and session_id:
     prev_file = os.path.join(bd_dir, session_id + '.json')
     try:
@@ -139,8 +140,15 @@ if bd_dir and session_id:
             prev_last_api_call_ts = prev.get('last_api_call_ts', 0) or 0
             prev_used_pct = prev.get('used_percentage', 0) or 0
             prev_window_implausible = prev.get('window_implausible') is True
+            prev_writer = prev.get('writer')
     except Exception:
         pass
+
+# One writer per session (#4956; mod research, A6 item 2). The Brain Drain mod
+# writes this same file when the status line is not ours; if it already owns
+# this session, two writers would race, so the bridge leaves it alone.
+if prev_writer == 'mod':
+    sys.exit(0)
 
 # Account-level TTL persistence — a new session inherits the TTL the account
 # last used, so its countdown is right before its own first cache write lands
@@ -491,6 +499,24 @@ function listSessionFiles(dir: string): string[] {
   return fs.readdirSync(dir).filter(f => f.endsWith('.json') && !META_FILES.has(f));
 }
 
+/** True when a session file written in the last 36 hours (the same age
+ *  cleanupStaleSessions keeps) carries the mod's "writer":"mod" stamp. */
+function modIsWriting(): boolean {
+  const dir = path.join(os.homedir(), '.claude', 'fuel-gauge');
+  const cutoff = Date.now() - 36 * 60 * 60 * 1000;
+  try {
+    for (const file of listSessionFiles(dir)) {
+      try {
+        const filePath = path.join(dir, file);
+        if (fs.statSync(filePath).mtimeMs < cutoff) { continue; }
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (data && data.writer === 'mod') { return true; }
+      } catch { /* a half-written or foreign file says nothing */ }
+    }
+  } catch { /* no directory yet */ }
+  return false;
+}
+
 // Terminal Shell Integration tracking (VS Code 1.93+)
 let trackedSessionId: string | undefined;
 let trackedExecution: vscode.TerminalShellExecution | undefined;
@@ -804,7 +830,9 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-type StatusLineOwner = 'ours' | 'foreign' | 'optout' | 'unknown';
+// 'mod': the Brain Drain mod is writing the session files, so the extension
+// has no need of the status-line slot and does not ask for it (#4956).
+type StatusLineOwner = 'ours' | 'foreign' | 'optout' | 'mod' | 'unknown';
 
 interface StatusLineBackup {
   capturedAt: string;
@@ -1058,6 +1086,14 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     statusLineOwner = 'ours';
     foreignCommand = null;
     return; // The path every existing install takes. No write, no dialog.
+  }
+
+  // The mod already feeds the gauge, so taking the user's status line would buy
+  // nothing (mod research, A6 item 3). Connect still works when asked for.
+  if (!force && modIsWriting()) {
+    statusLineOwner = 'mod';
+    foreignCommand = state.command ?? null;
+    return;
   }
 
   if (state.owner === 'empty') {

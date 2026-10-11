@@ -1717,6 +1717,45 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 37. ONE WRITER PER SESSION, AND NO SLOT WANTED WHILE THE MOD WRITES (#4956;
+  //     mod research A6 items 2 and 3). The Brain Drain mod writes the same
+  //     session files, stamped "writer":"mod", when the status line is not ours.
+  await run('mod-is-the-writer', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({ env: { A: '1' } }, null, 2) + '\n');
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    const modFile = path.join(fgDir, 'mod-owned.json');
+    const modData = { cwd: '/w', project_dir: '/w', used_percentage: 64, remaining_percentage: 36,
+      session_id: 'mod-owned', timestamp: Date.now() / 1000, writer: 'mod' };
+    fs.writeFileSync(modFile, JSON.stringify(modData));
+
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 80));
+    check('with the mod writing, the empty status-line slot is left alone',
+      readSettings().statusLine === undefined, JSON.stringify(readSettings()));
+    check('and nothing is asked', messages.length === 0, JSON.stringify(messages));
+
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({ session_id: 'mod-owned', cwd: '/w', workspace: { project_dir: '/w' },
+        context_window: { context_window_size: 200000, used_percentage: 12 } }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const after = JSON.parse(fs.readFileSync(modFile, 'utf-8'));
+    check('the bridge does not overwrite a session the mod writes',
+      after.writer === 'mod' && after.used_percentage === 64, JSON.stringify(after));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 37b. Without a mod file the empty slot is still taken, as before.
+  await run('no-mod-still-wires', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({ env: { A: '1' } }, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 80));
+    check('no mod: the empty slot is wired to the bridge',
+      readSettings().statusLine && readSettings().statusLine.command === bridgePath(), JSON.stringify(readSettings()));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
