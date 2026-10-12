@@ -130,6 +130,7 @@ prev_last_api_call_ts = 0
 prev_used_pct = 0
 prev_window_implausible = False
 prev_writer = None
+prev_written_at = 0
 if bd_dir and session_id:
     prev_file = os.path.join(bd_dir, session_id + '.json')
     try:
@@ -141,14 +142,30 @@ if bd_dir and session_id:
             prev_used_pct = prev.get('used_percentage', 0) or 0
             prev_window_implausible = prev.get('window_implausible') is True
             prev_writer = prev.get('writer')
+            prev_written_at = prev.get('timestamp', 0) or 0
     except Exception:
         pass
 
 # One writer per session (#4956; mod research, A6 item 2). The Brain Drain mod
-# writes this same file when the status line is not ours; if it already owns
-# this session, two writers would race, so the bridge leaves it alone.
+# writes this same file when the status line is not ours; while it is still
+# writing this session, two writers would race, so the bridge leaves it alone.
+# Only while it is still writing (#4983): after Connect the mod moves to its own
+# folder at its next turn end, and its last file here keeps the stamp. Yielding
+# to that for good froze the session's gauge. So the bridge yields only to a mod
+# write younger than MOD_YIELD_S. The figure is the longest the gauge can stay
+# on the mod's last reading after the handover; it is two of the extension's
+# default 15-second polls. During a turn the mod writes on every model request,
+# which can be further apart than this (a long tool call); in such a gap the
+# bridge writes too and the two readings alternate, as both did on 0.9.1, until
+# the mod moves out.
+MOD_YIELD_S = 30
 if prev_writer == 'mod':
-    sys.exit(0)
+    try:
+        mod_age = time.time() - float(prev_written_at)
+    except Exception:
+        mod_age = MOD_YIELD_S
+    if 0 <= mod_age < MOD_YIELD_S:
+        sys.exit(0)
 
 # Account-level TTL persistence — a new session inherits the TTL the account
 # last used, so its countdown is right before its own first cache write lands

@@ -1756,6 +1756,31 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 37c. THE BRIDGE TAKES BACK A SESSION THE MOD HAS STOPPED WRITING (#4983).
+  //      After Connect, the mod moves its writes to ~/.claude/fuel-gauge-mod/ at
+  //      its next turn end, leaving its last file in ~/.claude/fuel-gauge/
+  //      stamped "writer":"mod". If the bridge yielded to that stamp for good,
+  //      nobody would write the session again and its gauge would freeze.
+  await run('bridge-takes-back-stale-mod-file', async (ext) => {
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 80));
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    fs.mkdirSync(fgDir, { recursive: true });
+    const modFile = path.join(fgDir, 'mod-left.json');
+    fs.writeFileSync(modFile, JSON.stringify({ cwd: '/w', project_dir: '/w', used_percentage: 64,
+      remaining_percentage: 36, session_id: 'mod-left', timestamp: Date.now() / 1000 - 300, writer: 'mod' }));
+    execFileSync('bash', [bridgePath()], {
+      input: JSON.stringify({ session_id: 'mod-left', cwd: '/w', workspace: { project_dir: '/w' },
+        context_window: { context_window_size: 200000, used_percentage: 12, total_input_tokens: 24000,
+          current_usage: { input_tokens: 10, cache_read_input_tokens: 23990 } } }),
+      env: { ...process.env, HOME: TMPROOT },
+    });
+    const after = JSON.parse(fs.readFileSync(modFile, 'utf-8'));
+    check('a mod file five minutes old is overwritten by the bridge',
+      after.writer !== 'mod' && after.used_percentage === 12, JSON.stringify(after));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   // 38. A SESSION FILE THE BRAIN DRAIN MOD WROTE IS DRAWN LIKE THE BRIDGE'S
   //     (#4918). When the bridge is not the status line, the mod writes the
   //     session file itself. The fields below are the ones a live mod wrote on
