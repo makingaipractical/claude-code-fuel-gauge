@@ -12,7 +12,7 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 - The bridge starts Python once per update instead of twice, and refuses a session id that is not a plain file name.
 - With the Brain Drain mod: the bridge leaves alone a session file the mod is writing, and the extension does not ask for Claude Code's status line while the mod has written a session file in the last 36 hours. **Connect Status Line** still takes it when you ask.
 
-## Unreleased — v0.9.2
+## v0.9.2 — 2026-10-11
 
 - Renamed from Claude Code Fuel Gauge to **Brain Drain for Claude Code**. Only the name you read changes: the extension id stays `makingaipractical.claude-code-fuel-gauge`, so this arrives as an ordinary update. Your `fuel-gauge.*` settings, the status bar items you have hidden, and the bridge's `~/.claude/fuel-gauge/` folder all carry over untouched. Commands now appear in the Command Palette as **Brain Drain: Show Diagnostics**, **Brain Drain: Connect Status Line** and **Brain Drain: Restore Previous Status Line**.
 - When Claude Code reports a context window smaller than the tokens already in the session, the percentage is shown uncoloured with a warning glyph and a hover saying the window it reported cannot be true ([claude-code#63447](https://github.com/anthropics/claude-code/issues/63447)). The number is left exactly as Claude Code gave it: Anthropic's own indicator clamps an impossible reading to 100%, Brain Drain flags it, because a confident wrong number is worse than a visibly unreliable one.
