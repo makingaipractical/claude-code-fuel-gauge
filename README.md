@@ -7,7 +7,7 @@
 
 Brain Drain puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits on Anthropic subscription plans.
 
-**Who it is for:** anyone who runs `claude` in a terminal, VS Code's own or another one, with the project's folder open in VS Code or a fork such as Cursor. **Not for:** chats in the Claude apps or on claude.ai, which never reach Claude Code's status line, or anyone who wants a per-model weekly usage bar, which Claude Code does not pass on (see [Known issues](#known-issues)).
+**Who it is for:** anyone who runs `claude` in a terminal, VS Code's own or another one, with the project's folder open in VS Code or a fork such as Cursor. **Not for:** chats in the Claude apps or on claude.ai, because Brain Drain sees only Claude Code sessions, or anyone who wants a per-model weekly usage bar, which Claude Code does not pass on (see [Known issues](#known-issues)).
 
 **Not in VS Code, or want it under the prompt?** Brain Drain also comes as a [Claude Code mod](https://github.com/makingaipractical/brain-drain-for-claude-code) (Claude Code 2.1.287 or later) that draws the same figures under Claude Code's prompt in any terminal. Use either one, or both.
 
