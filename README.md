@@ -154,7 +154,8 @@ To hide one item without hiding the rest, right-click the status bar. VS Code li
 2. Accept the folder's workspace-trust prompt. Claude Code runs the status line command only in a trusted folder.
 3. Check that `~/.claude/settings.json` does not set `"disableAllHooks": true`, which also stops a custom status line ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview)).
 4. Look for a red **wrong folder** item (see [Known issues](#known-issues)).
-5. Run **Brain Drain: Show Diagnostics**.
+5. Check that the project's own `.claude/settings.json` or `.claude/settings.local.json` does not set a `statusLine`. A setting there overrides the one in `~/.claude/settings.json` ([settings docs](https://code.claude.com/docs/en/settings)), so Claude Code runs that status line instead of Brain Drain's.
+6. Run **Brain Drain: Show Diagnostics**. It names any of these files that is in the way.
 
 ## Known issues
 

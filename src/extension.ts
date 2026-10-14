@@ -1337,7 +1337,12 @@ function showBridgeStatus() {
     }
   }
 
-  // A project-level statusLine outranks ~/.claude and would silently win.
+  // A project-level statusLine outranks ~/.claude and would silently win
+  // (settings docs: "A key set at a higher level overrides the same key set
+  // lower down"; both project files sit above the user file). Kept for the
+  // no-session line below, which is where someone looking for a dark gauge
+  // reads. Reported only; nothing writes to these files (#4950).
+  const projectStatusLines: string[] = [];
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     for (const name of ['settings.json', 'settings.local.json']) {
       const p = path.join(folder.uri.fsPath, '.claude', name);
@@ -1345,6 +1350,8 @@ function showBridgeStatus() {
         const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
         if (parsed && typeof parsed === 'object' && 'statusLine' in parsed) {
           add('OVERRIDES US', `${p} also sets statusLine`);
+          // A project that points at our own bridge is not why the gauge is dark.
+          if (classifyStatusLine(parsed, bridgePath).owner === 'foreign') { projectStatusLines.push(p); }
         }
         if (parsed && typeof parsed === 'object') { noteHookBlockers(p, parsed, false); }
       } catch {
@@ -1386,9 +1393,14 @@ function showBridgeStatus() {
           // Unreadable or half-written — not this report's problem.
         }
       }
-      add('Session for this workspace', matched ?? 'NONE — the gauge is hidden in this window. ' +
-        'Claude Code sessions are matched by the folder they were started in, so a session ' +
-        'started in a different folder will not appear here.');
+      add('Session for this workspace', matched ?? (projectStatusLines.length > 0
+        ? `NONE — the gauge is hidden in this window. ${projectStatusLines.join(' and ')} ` +
+          'sets a status line of its own, and Claude Code runs that one instead of Brain Drain\'s ' +
+          'for sessions started in this folder. Remove statusLine from that file to bring the ' +
+          'gauge back; Brain Drain does not change project settings.'
+        : 'NONE — the gauge is hidden in this window. ' +
+          'Claude Code sessions are matched by the folder they were started in, so a session ' +
+          'started in a different folder will not appear here.'));
     }
   } catch {
     add('Session directory', 'MISSING');
