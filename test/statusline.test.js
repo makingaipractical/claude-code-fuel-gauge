@@ -1511,8 +1511,8 @@ async function run(name, fn) {
 
   // 30b. THE TWO EDGES LEFT ON 11 OCTOBER (#3070). (1) Claude Code's own
   //      used_percentage counts input, cache creation and cache reads, never
-  //      output (statusline docs, quoted in 260824_Verlauf, Research_Platform_
-  //      Assumptions_PreRelease); the fallback added output too, so it could
+  //      output (https://code.claude.com/docs/en/statusline: "calculated from
+  //      input tokens only"); the fallback added output too, so it could
   //      call a window "cannot be true" with the input inside it. (2) With an
   //      old systemOverhead and only the exceeds_200k_tokens cross-check firing,
   //      the hover guessed the reason from the subtracted percentage and named
