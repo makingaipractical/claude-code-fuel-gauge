@@ -34,7 +34,6 @@ activation overwrites your changes.
 
 ## What happens next
 
-Making AI Practical is one person, so I aim to reply to a pull request or an issue
-within two weeks. If you have heard nothing after that, a polite nudge is welcome and
-will not annoy anyone. A large pull request that arrives unannounced may sit longer —
+Making AI Practical is one person. If you have heard nothing for a while, a polite
+nudge is welcome and will not annoy anyone. A large pull request that arrives unannounced may sit longer —
 which is why the issue-first line above is a kindness to you, not a procedure.
