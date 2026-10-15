@@ -35,5 +35,5 @@ activation overwrites your changes.
 ## What happens next
 
 Making AI Practical is one person. If you have heard nothing for a while, a polite
-nudge is welcome and will not annoy anyone. A large pull request that arrives unannounced may sit longer —
+nudge is welcome and will not annoy anyone. A large pull request that arrives unannounced may wait a good while —
 which is why the issue-first line above is a kindness to you, not a procedure.

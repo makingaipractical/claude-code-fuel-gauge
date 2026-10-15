@@ -10,10 +10,11 @@ It reads and writes these files, and nothing else:
 | File or folder | What the extension does with it |
 | --- | --- |
 | `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. While the Brain Drain mod feeds the gauge, it does neither until you run Connect Status Line. Every other setting is left as it was. |
-| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, the extension copies it aside first, to `context-bridge.sh.fuel-gauge.orig`. |
+| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, the extension copies it aside first, to `context-bridge.sh.fuel-gauge.orig`, unless an earlier copy is already there. |
 | `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file and keeps two token counters from it, to find out whether your prompt cache lasts five minutes or an hour. Message text is never stored or sent anywhere, and nothing is written there. |
-| VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. |
+| VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. Also keeps two times: when you last ran Restore, and when a window last asked about the status line, so that two windows do not ask at once. |
+| Settings files that can keep the gauge dark | Only when you run **Show Diagnostics**, and only to read: the open folder's `.claude/settings.json` and `.claude/settings.local.json`, Claude Code's managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows), and `settings.json` in the `CLAUDE_CONFIG_DIR` folder when VS Code was started with that variable set. The report names what it found. |
 
 ## Reporting a vulnerability
 

@@ -21,7 +21,7 @@ Brain Drain puts four Claude Code readouts in your VS Code status bar: how full 
 
 Brain Drain never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of any kind*. Every number it shows comes from data Claude Code hands to its status line command on your own machine, plus the end of the session transcript Claude Code already writes.
 
-The complete list of what it reads and writes is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md): five places, all under `~/.claude` or VS Code's own storage.
+The complete list of what it reads and writes is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md). It writes only under `~/.claude` and in VS Code's own storage.
 
 ## The cache countdown
 
@@ -61,7 +61,7 @@ How full the context window is, updated live and colour-coded green → yellow �
 - **Unreliable** — `NN%` with a warning icon and no colour: Claude Code reported a context window smaller than the tokens already in it, which cannot be true. The number is shown as Claude Code gave it, not corrected; the hover explains.
 - **No session** — the gauge is hidden. It appears when a Claude Code session starts in the folder this window has open
 
-The percentage is exactly the one Claude Code reports. Run `/context` in a session, or read Claude Code's own status line, and you will see the same figure. It will not match the small pie in the VS Code prompt box, or the "Context low" message in the terminal, because those two measure how much room is left before Claude Code compacts your conversation automatically. They answer a different question, so their numbers differ. See [Known issues](#known-issues).
+With the bridge, the percentage is exactly the one Claude Code reports. Run `/context` in a session, or read Claude Code's own status line, and you will see the same figure. When the Brain Drain mod feeds the gauge, it works the figure out after each request from the same three token counts Claude Code's own percentage is calculated from ([statusline docs](https://code.claude.com/docs/en/statusline)); I have not yet put it beside `/context` to compare. It will not match the small pie in the VS Code prompt box, or the "Context low" message in the terminal, because those two measure how much room is left before Claude Code compacts your conversation automatically. They answer a different question, so their numbers differ. See [Known issues](#known-issues).
 
 ### Model and effort
 
@@ -158,7 +158,8 @@ To hide one item without hiding the rest, right-click the status bar. VS Code li
 4. Look for a red **wrong folder** item (see [Known issues](#known-issues)).
 5. Check that the project's own `.claude/settings.json` or `.claude/settings.local.json` does not set a `statusLine`. A setting there overrides the one in `~/.claude/settings.json` ([settings docs](https://code.claude.com/docs/en/settings)), so Claude Code runs that status line instead of Brain Drain's.
 6. If you start Claude Code with `CLAUDE_CONFIG_DIR` set, it keeps its settings in that folder instead of `~/.claude` ([environment variables](https://code.claude.com/docs/en/env-vars)), so the status line Brain Drain set up in `~/.claude/settings.json` does not run in those sessions. Copy the `statusLine` entry into that folder's `settings.json`.
-7. Run **Brain Drain: Show Diagnostics**. It names any of these files that is in the way, and checks a `CLAUDE_CONFIG_DIR` folder when VS Code itself was started with the variable set.
+7. If you use the Brain Drain mod, run `/plugin` in Claude Code: the line under the tabs should name it, as in `1 mod active · brain-drain` ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview#see-which-mods-a-session-loaded)). While the mod has written a session file in the last 36 hours, Brain Drain does not ask for the status line, so a mod that has stopped leaves the gauge dark without a prompt. **Brain Drain: Connect Status Line** switches to the bridge.
+8. Run **Brain Drain: Show Diagnostics**. It names any of these files that is in the way, and checks a `CLAUDE_CONFIG_DIR` folder when VS Code itself was started with the variable set.
 
 ## Known issues
 
@@ -185,10 +186,11 @@ No API calls, no telemetry, no runtime dependencies, no account. Everything runs
 | File or folder | What Brain Drain does with it |
 | --- | --- |
 | `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. While the Brain Drain mod feeds the gauge, it does neither until you run Connect Status Line. Every other setting is left as it was. |
-| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first, to `context-bridge.sh.fuel-gauge.orig`. |
+| `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first, to `context-bridge.sh.fuel-gauge.orig`, unless an earlier copy is already there. |
 | `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file and keeps two token counters from it, to find out whether your prompt cache lasts five minutes or an hour. Message text is never stored or sent anywhere, and nothing is written there. |
-| VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. |
+| VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. Also keeps two times: when you last ran Restore, and when a window last asked about the status line, so that two windows do not ask at once. |
+| Settings files that can keep the gauge dark | Only when you run **Show Diagnostics**, and only to read: the open folder's `.claude/settings.json` and `.claude/settings.local.json`, Claude Code's managed settings file (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS, `C:\Program Files\ClaudeCode\managed-settings.json` on Windows), and `settings.json` in the `CLAUDE_CONFIG_DIR` folder when VS Code was started with that variable set. The report names what it found. |
 
 Nothing else is read, nothing else is written, and nothing leaves the machine. The same list is in [SECURITY.md](SECURITY.md), together with how to report a vulnerability privately.
 
