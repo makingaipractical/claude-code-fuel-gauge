@@ -1659,6 +1659,41 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 34b. CLAUDE_CONFIG_DIR IS NAMED IN SHOW DIAGNOSTICS (#4949). Claude Code
+  //      keeps "all settings, session history, and plugins" under it (env-vars
+  //      docs, read 15 October 2026), so its sessions never read the status
+  //      line wired in ~/.claude/settings.json. Read-only: nothing is wired there.
+  await run('diagnostics-config-dir', async (ext) => {
+    const alt = path.join(TMPROOT, '.claude-work');
+    fs.mkdirSync(alt, { recursive: true });
+    fs.writeFileSync(path.join(alt, 'settings.json'), JSON.stringify({}, null, 2));
+    process.env.CLAUDE_CONFIG_DIR = alt;
+    try {
+      fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      await registered['fuel-gauge.showBridgeStatus']();
+      let report = outputLines.join('\n');
+      check('Diagnostics names the CLAUDE_CONFIG_DIR folder',
+        report.includes('CLAUDE_CONFIG_DIR') && report.includes(alt), report);
+      check('and says its sessions are not shown', report.includes('not shown'), report);
+      check('and nothing was written into that folder',
+        JSON.stringify(JSON.parse(fs.readFileSync(path.join(alt, 'settings.json'), 'utf-8'))) === '{}');
+
+      fs.writeFileSync(path.join(alt, 'settings.json'), JSON.stringify({
+        statusLine: { type: 'command', command: bridgePath() },
+      }, null, 2));
+      outputLines.length = 0;
+      await registered['fuel-gauge.showBridgeStatus']();
+      report = outputLines.join('\n');
+      check('a folder wired to our bridge by hand is reported as wired',
+        report.includes('runs our bridge') && !report.includes('not shown'), report);
+    } finally {
+      delete process.env.CLAUDE_CONFIG_DIR;
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    }
+  });
+
   // 35. THE PROJECT FOLDER'S OWN PYTHON FILES NEVER RUN (#4953). Claude Code
   //     runs the bridge from the session's folder, and python3 -c puts that
   //     folder first on the import path: a json.py in a cloned repository ran
