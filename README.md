@@ -27,16 +27,16 @@ The complete list of what it reads and writes is in [Privacy](#privacy) further 
 
 Anthropic keeps the front of your conversation warm in a prompt cache: for an hour on a Claude subscription within its included usage, and for five minutes once you draw on usage credits or use an API key ([Claude Code docs](https://code.claude.com/docs/en/prompt-caching)). While it is warm, your next message reuses it. Let it go cold and the whole conversation is read again from the start: the next turn is slower, and on API billing it costs more.
 
-Brain Drain shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `10%` context sits in green next to an `expired` cache in red — and the amber dot on the right is the usage alert, lit because a usage limit crossed 70%.
+Brain Drain shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Here a comfortable `10%` context sits in green next to an `expired` cache in red.
 
 <p align="center">
   <img src="images/cache-expired.png" width="300" alt="Status bar showing 10% context in green, an expired cache countdown in red with a circle-slash icon, the model-effort indicator fable·x-high, and the amber usage alert dot">
 </p>
 
-- **Counting down** — `M:SS`, inherits the context colour while there is comfortable time left
+- **Counting down** — `◷ M:SS`, inherits the context colour while there is comfortable time left
 - **Under a minute** — yellow
 - **Expiring (<15s)** — red
-- **Expired** — `expired` label in red with a circle-slash icon
+- **Expired** — `◷ expired` in red
 - **Hidden** — when there is no cache state yet (fresh session, just after `/compact`)
 
 **How exact it is.** The cache lifetime is read, not guessed. Claude Code records on every turn which cache it asked for, the five-minute one or the one-hour one, and Brain Drain reads the most recent of those entries from the end of the session transcript. That reading is exact, and it corrects itself on the next update. From 95% of your 5-hour limit the cache hover also warns that the lifetime may drop, because going over the limit onto usage credits means the five-minute cache. The answer is saved to `~/.claude/fuel-gauge/account_ttl.json`, so a new session's countdown is right from its first second.
@@ -45,7 +45,7 @@ The countdown starts again from the full lifetime whenever Claude Code reports a
 
 ## The other three readouts
 
-Brain Drain shows up to four readouts, right-aligned, plus a warning when Claude runs in the wrong folder, and one shared hover tooltip that breaks everything down.
+Brain Drain shows up to four readouts, right-aligned, in this order: `🧠 34%` (context), `◷ 59:59` (cache), `5h 12% ↻22:40` and `wk 25%` (usage limits), and `opus·x-high` (model and effort). Each is its own item with its own colour. A warning follows them when Claude runs in the wrong folder, and one shared hover tooltip breaks everything down.
 
 <p align="center">
   <img src="images/tooltip.png" width="360" alt="The Brain Drain hover tooltip: model and effort in colour, then context %, the time the cache expires, and the session and weekly usage limits with reset times">
@@ -55,8 +55,8 @@ Brain Drain shows up to four readouts, right-aligned, plus a warning when Claude
 
 How full the context window is, updated live and colour-coded green → yellow → red. It also covers `claude` sessions in the integrated terminal, which Claude Code's own indicator did not when I checked in August 2026.
 
-- **Active** — coloured percentage, using your thresholds
-- **Stale** — the percentage with no colour: no update for over an hour, so the session is treated as abandoned. The usage dot is hidden too, because old limit numbers mislead.
+- **Active** — `🧠 34%`, coloured by your thresholds
+- **Stale** — the percentage with no colour: no update for over an hour, so the session is treated as abandoned. The usage limits are hidden too, because old limit numbers mislead.
 - **Reading paused** — `~42%`, no colour: right after `/compact` Claude Code reports an empty context window until your next turn, so the gauge holds the last number it had and marks it with a tilde rather than dropping to a green 0%
 - **Unreliable** — `NN%` with a warning icon and no colour: Claude Code reported a context window smaller than the tokens already in it, which cannot be true. The number is shown as Claude Code gave it, not corrected; the hover explains.
 - **No session** — the gauge is hidden. It appears when a Claude Code session starts in the folder this window has open
@@ -71,12 +71,13 @@ It also shows you when a session is no longer running the model you picked. Anth
 
 ### Usage limits
 
-Your session (5-hour) and weekly usage live in the **hover tooltip**, each with its reset time. To keep the bar quiet, that is the only place the numbers appear, until a limit gets high:
+Your session (5-hour) and weekly usage sit in the bar as two items, `5h 12% ↻22:40` and `wk 25%`. The 5-hour item also shows when that window resets, in 24-hour time, while the reset still lies ahead. Each item is coloured by its own figure:
 
-- **Running hot** — when your 5-hour or weekly usage crosses 70%, a coloured dot appears in the bar (yellow ≥70%, red ≥90%). Hover it for the exact percentages and reset times.
-- **Hidden** — below 70%, and whenever Claude Code sends no limit data (API-key sessions, or before the session's first response). Hidden means hidden: no misleading 0%.
+- **Normal** — no colour below 70% used
+- **Running hot** — yellow from 70%, red from 90%
+- **Hidden** — whenever Claude Code sends no figure for that limit (API-key sessions, or before the session's first response). Hidden means hidden: no misleading 0%.
 
-Turn the whole usage display off with `fuel-gauge.showUsage: false`.
+Hover either item, or the context gauge, for both percentages and their reset times. Turn both items and the hover lines off with `fuel-gauge.showUsage: false`.
 
 ## Install
 
@@ -132,7 +133,7 @@ The bridge and your own status line cannot run at the same time. That is a Claud
   `xcode-select --install` and the gauge works from then on.
 - Built and tested on macOS. Linux should work — the bridge needs nothing beyond `bash` and `python3` — but I have not run it there. Windows is untested; the bridge is a bash script, so at minimum it needs a `bash` on the path.
 - Usage limits display: a Claude subscription plan (Pro/Max). API-key sessions don't have these limits, so the display stays hidden.
-- Usage limits on a **Team plan**: Claude Code's status line documentation lists the limit figures for Pro and Max only ([statusline docs](https://code.claude.com/docs/en/statusline)), and Team users have reported them missing or intermittent ([claude-code#84995](https://github.com/anthropics/claude-code/issues/84995)). The usage dot and the hover lines may stay empty there. Everything else works normally.
+- Usage limits on a **Team plan**: Claude Code's status line documentation lists the limit figures for Pro and Max only ([statusline docs](https://code.claude.com/docs/en/statusline)), and Team users have reported them missing or intermittent ([claude-code#84995](https://github.com/anthropics/claude-code/issues/84995)). The limit items may stay hidden there, and the hover lines empty. Everything else works normally.
 
 ## Settings
 
@@ -145,10 +146,10 @@ The bridge and your own status line cannot run at the same time. That is a Claud
 | `fuel-gauge.cacheTTL` | `null` (auto) | How long the prompt cache lives, in seconds. Leave it empty and Brain Drain reads the answer from Claude Code's own record. Set `300` (5 minutes) or `3600` (1 hour) only to override that |
 | `fuel-gauge.cacheWarningSeconds` | `null` (off) | Play 3 short beeps when the cache countdown drops below this many seconds. macOS only. Example: `180` for a 3-minute warning |
 | `fuel-gauge.effortStyle` | `text` | Model·effort item: `text` to show it, `off` to hide it |
-| `fuel-gauge.showUsage` | `true` | Show session/weekly usage in the hover, with the alert dot when a limit is high |
+| `fuel-gauge.showUsage` | `true` | Show the session (5-hour) and weekly limits in the status bar and the hover |
 | `fuel-gauge.manageStatusLine` | `true` | Let Brain Drain use Claude Code's status line slot. Set to `false` to keep Brain Drain out of `~/.claude/settings.json` entirely. Without the Brain Drain mod, the gauge then shows a warning icon that you can click to connect |
 
-To hide one item without hiding the rest, right-click the status bar. VS Code lists them as **Brain Drain: context**, **cache countdown**, **model and effort**, **usage alert** and **wrong folder**, and remembers what you switch off. No setting needed.
+To hide one item without hiding the rest, right-click the status bar. VS Code lists them as **Brain Drain: context**, **cache countdown**, **5-hour limit**, **weekly limit**, **model and effort** and **wrong folder**, and remembers what you switch off. No setting needed.
 
 ## If the gauge is dark
 
