@@ -5,13 +5,16 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 ## Unreleased — after v0.9.2
 
 - The gauge no longer freezes on its last reading when Brain Drain cannot read its session folder. It used to hide for a second and then draw the old number again, so a gauge that had stopped updating looked healthy.
+- When Claude Code sends no percentage of its own, the fallback no longer counts output tokens. It now adds up input, cache creation and cache reads, as Claude Code's own figure does, so it no longer marks a reading unreliable when the input fits in the window. The hover on an unreliable reading names the check that actually fired.
 - After **Restore Previous Status Line**, the readouts go dark as the dialog says they will, instead of showing the bridge's last reading for up to 36 hours. A reading written after the restore still shows.
 - **Show Diagnostics** names `disableAllHooks` or `allowManagedHooksOnly` when either is set, and the settings file that sets it. Either one turns a custom status line off. Policies set by device management or by a server are not files, so a clean line here does not rule them out.
 - When the gauge is hidden because the folder's own `.claude/settings.json` or `.claude/settings.local.json` sets a status line, **Show Diagnostics** says so on its no-session line and names the file. Claude Code runs a project's status line instead of the one in `~/.claude`. Brain Drain still writes nothing to project settings.
+- When VS Code's environment sets `CLAUDE_CONFIG_DIR`, **Show Diagnostics** names it and says whether that folder's `settings.json` runs Brain Drain's bridge. Claude Code sessions that use another config folder never run the status line wired in `~/.claude/settings.json`.
 - **Show Diagnostics** reuses one entry in the Output panel instead of adding a new one each time it runs.
 - Upgrading no longer leaves a copy of the previous bridge as `context-bridge.sh.fuel-gauge.orig`. A bridge you edited by hand is still copied aside before it is replaced. Bridges installed before this version carry no mark of being ours, so the first upgrade copies one aside a last time.
 - The bridge starts Python once per update instead of twice, and refuses a session id that is not a plain file name.
 - With the Brain Drain mod: the bridge leaves alone a session file the mod wrote in the last 30 seconds, and takes it back once the mod has moved out after **Connect Status Line**, so that session's gauge keeps updating. The extension also does not ask for Claude Code's status line while the mod has written a session file in the last 36 hours. **Connect Status Line** still takes it when you ask.
+- Documentation: the README says who Brain Drain is for and how the project is maintained, and the review request has a line of its own, linking both registries. A pull request template for contributors. SUPPORT.md and the bug template now name the command as it appears in the Command Palette, **Brain Drain: Show Diagnostics**.
 
 ## v0.9.2 — 2026-10-11
 
