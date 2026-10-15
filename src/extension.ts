@@ -1333,6 +1333,29 @@ function showBridgeStatus() {
     add('Owned by Brain Drain', state.owner === 'ours' ? 'yes' : 'no');
   }
 
+  // CLAUDE_CONFIG_DIR moves "all settings, session history, and plugins" off
+  // ~/.claude (Claude Code's env-vars docs, read 15 October 2026), so sessions
+  // started with it never run the status line wired above (#4949). VS Code
+  // sees the variable only when a shell that set it launched VS Code, so its
+  // absence here says nothing about an alias such as `claude-work`. Read-only.
+  const configDirEnv = process.env.CLAUDE_CONFIG_DIR;
+  if (configDirEnv && path.resolve(configDirEnv) !== path.resolve(claudeDir)) {
+    let verdict = 'no readable settings.json there, so its sessions are not shown';
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(configDirEnv, 'settings.json'), 'utf-8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        verdict = classifyStatusLine(parsed, bridgePath).owner === 'ours'
+          ? 'its settings.json runs our bridge'
+          : 'its settings.json does not run our bridge, so its sessions are not shown';
+      }
+    } catch {
+      // Missing or unparseable: the verdict above stands.
+    }
+    add('CLAUDE_CONFIG_DIR', `${configDirEnv} — ${verdict}`);
+  } else {
+    add('CLAUDE_CONFIG_DIR', 'not set where VS Code was started');
+  }
+
   add('manageStatusLine setting', String(
     vscode.workspace.getConfiguration('fuel-gauge').get<boolean>('manageStatusLine', true)
   ));
