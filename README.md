@@ -7,6 +7,8 @@
 
 Brain Drain puts four Claude Code readouts in your VS Code status bar: how full the context window is, how long your prompt cache has left, which model and effort level the session is running, and how close you are to your usage limits on Anthropic subscription plans.
 
+**Who it is for:** anyone who runs `claude` in a terminal, VS Code's own or another one, with the project's folder open in VS Code or a fork such as Cursor. **Not for:** chats in the Claude apps or on claude.ai, because Brain Drain sees only Claude Code sessions, or anyone who wants a per-model weekly usage bar, which Claude Code does not pass on (see [Known issues](#known-issues)).
+
 **Not in VS Code, or want it under the prompt?** Brain Drain also comes as a [Claude Code mod](https://github.com/makingaipractical/brain-drain-for-claude-code) (Claude Code 2.1.287 or later) that draws the same figures under Claude Code's prompt in any terminal. Use either one, or both.
 
 **Terminal sessions only.** Brain Drain sees `claude` sessions started in a terminal, including VS Code's integrated terminal. It cannot see sessions in the chat panel of Anthropic's Claude Code extension, because the chat panel does not run the status line (checked on Claude Code 2.1.296).
@@ -169,9 +171,11 @@ To hide one item without hiding the rest, right-click the status bar. VS Code li
 
 ## Questions, bugs and ideas
 
-If something is broken, [open an issue](https://github.com/makingaipractical/claude-code-fuel-gauge/issues/new/choose) and pick the bug report template. It asks you to paste the output of the **Brain Drain: Show Diagnostics** command, which lists your settings file, the bridge script and the session files Brain Drain can see — that report answers most of the questions I would otherwise have to ask you, so please include it. Questions about how any of this works belong in [Discussions under Q&A](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/q-a), and things you would like Brain Drain to do belong in [Discussions under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas). If the extension is working for you, please leave a review on the [Marketplace](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge&ssr=false#review-details) or on [Open VSX](https://open-vsx.org/extension/makingaipractical/claude-code-fuel-gauge/reviews) — reviews are how other people find it.
+If something is broken, [open an issue](https://github.com/makingaipractical/claude-code-fuel-gauge/issues/new/choose) and pick the bug report template. It asks you to paste the output of the **Brain Drain: Show Diagnostics** command, which lists your settings file, the bridge script and the session files Brain Drain can see — that report answers most of the questions I would otherwise have to ask you, so please include it. Questions about how any of this works belong in [Discussions under Q&A](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/q-a), and things you would like Brain Drain to do belong in [Discussions under Ideas](https://github.com/makingaipractical/claude-code-fuel-gauge/discussions/categories/ideas).
 
-If you would rather not use GitHub — or you want to talk about something that does not belong on a public tracker — email [info@makingaipractical.com](mailto:info@makingaipractical.com). And if you want to send a patch, [CONTRIBUTING.md](CONTRIBUTING.md) says how to run everything locally.
+If Brain Drain is useful to you, a short review helps other people find it: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge&ssr=false#review-details) · [Open VSX](https://open-vsx.org/extension/makingaipractical/claude-code-fuel-gauge/reviews).
+
+If you would rather not use GitHub — or you want to talk about something that does not belong on a public tracker — email [info@makingaipractical.com](mailto:info@makingaipractical.com). And if you want to send a patch, [CONTRIBUTING.md](CONTRIBUTING.md) says how to run everything locally. All of these routes are also listed in [SUPPORT.md](.github/SUPPORT.md).
 
 ## Privacy
 
@@ -190,6 +194,10 @@ Nothing else is read, nothing else is written, and nothing leaves the machine. T
 ## Not affiliated with Anthropic
 
 This is a community tool. Not made by, endorsed by, or affiliated with Anthropic.
+
+## How the project is going
+
+Maintained, by one person. Every release is listed with its date in [CHANGELOG.md](CHANGELOG.md).
 
 ## Version history
 
