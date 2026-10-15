@@ -531,22 +531,32 @@ function listSessionFiles(dir: string): string[] {
   return fs.readdirSync(dir).filter(f => f.endsWith('.json') && !META_FILES.has(f));
 }
 
-/** True when a session file written in the last 36 hours (the same age
- *  cleanupStaleSessions keeps) carries the mod's "writer":"mod" stamp. */
-function modIsWriting(): boolean {
-  const dir = path.join(os.homedir(), '.claude', 'fuel-gauge');
+/** The newest session file written in the last 36 hours (the same age
+ *  cleanupStaleSessions keeps) that carries the mod's "writer":"mod" stamp,
+ *  looked for in each of the given folders under ~/.claude. */
+function newestModFile(folders: string[]): { folder: string; file: string; mtimeMs: number } | undefined {
   const cutoff = Date.now() - 36 * 60 * 60 * 1000;
-  try {
-    for (const file of listSessionFiles(dir)) {
-      try {
-        const filePath = path.join(dir, file);
-        if (fs.statSync(filePath).mtimeMs < cutoff) { continue; }
-        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        if (data && data.writer === 'mod') { return true; }
-      } catch { /* a half-written or foreign file says nothing */ }
-    }
-  } catch { /* no directory yet */ }
-  return false;
+  let newest: { folder: string; file: string; mtimeMs: number } | undefined;
+  for (const folder of folders) {
+    const dir = path.join(os.homedir(), '.claude', folder);
+    try {
+      for (const file of listSessionFiles(dir)) {
+        try {
+          const filePath = path.join(dir, file);
+          const mtimeMs = fs.statSync(filePath).mtimeMs;
+          if (mtimeMs < cutoff || (newest && mtimeMs <= newest.mtimeMs)) { continue; }
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          if (data && data.writer === 'mod') { newest = { folder, file, mtimeMs }; }
+        } catch { /* a half-written or foreign file says nothing */ }
+      }
+    } catch { /* no directory yet */ }
+  }
+  return newest;
+}
+
+/** True when the mod has written to ~/.claude/fuel-gauge/ in the last 36 hours. */
+function modIsWriting(): boolean {
+  return newestModFile(['fuel-gauge']) !== undefined;
 }
 
 // Terminal Shell Integration tracking (VS Code 1.93+)
@@ -1361,6 +1371,14 @@ function showBridgeStatus() {
   ));
   add('In-memory owner', statusLineOwner);
 
+  // Whether the Brain Drain mod is writing, in either folder it uses: it writes
+  // to fuel-gauge-mod/ while the status line runs our bridge, to fuel-gauge/
+  // otherwise. Read-only.
+  const modFile = newestModFile(['fuel-gauge', 'fuel-gauge-mod']);
+  add('Brain Drain mod', modFile
+    ? `wrote ${modFile.folder}/${modFile.file} ${Math.round((Date.now() - modFile.mtimeMs) / 60000)} min ago`
+    : 'no session file from the mod in the last 36 hours');
+
   // Two settings switch a custom status line off without a word (#4946; the
   // statusline docs' troubleshooting section, 31 August):
   // allowManagedHooksOnly in managed settings, and disableAllHooks anywhere.
@@ -1378,12 +1396,24 @@ function showBridgeStatus() {
   if (read.kind === 'ok') {
     noteHookBlockers(settingsPath, read.settings, false);
   }
-  // Claude Code 2.1.296 looks for managed-settings.json in this folder.
+  // Claude Code reads managed-settings.json and an optional managed-settings.d/
+  // folder in this system directory: /Library/Application Support/ClaudeCode/
+  // on macOS, /etc/claude-code/ on Linux and WSL, C:\Program Files\ClaudeCode\
+  // on Windows (managed-settings docs, read 15 October 2026). The .d files are
+  // read in sorted order.
   const managedDir = process.platform === 'darwin' ? '/Library/Application Support/ClaudeCode'
     : process.platform === 'win32' ? 'C:\\Program Files\\ClaudeCode'
-      : undefined;
-  if (managedDir) {
-    const p = path.join(managedDir, 'managed-settings.json');
+      : '/etc/claude-code';
+  const managedFiles = [path.join(managedDir, 'managed-settings.json')];
+  try {
+    const dropIn = path.join(managedDir, 'managed-settings.d');
+    for (const f of fs.readdirSync(dropIn).filter((f) => f.endsWith('.json')).sort()) {
+      managedFiles.push(path.join(dropIn, f));
+    }
+  } catch {
+    // No managed-settings.d folder is the normal case.
+  }
+  for (const p of managedFiles) {
     try {
       const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
       if (parsed && typeof parsed === 'object') { noteHookBlockers(p, parsed, true); }
