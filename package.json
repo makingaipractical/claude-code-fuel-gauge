@@ -2,7 +2,7 @@
   "name": "claude-code-fuel-gauge",
   "displayName": "Brain Drain for Claude Code",
   "description": "Live context %, cache countdown, model and effort level, and usage limits for Claude Code — in your VS Code status bar.",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "license": "MIT",
   "publisher": "makingaipractical",
   "icon": "images/icon.png",
@@ -94,7 +94,7 @@
         "fuel-gauge.showUsage": {
           "type": "boolean",
           "default": true,
-          "description": "Show your Claude plan's usage limits — session (5-hour) and weekly percentage used, with reset times — in the gauge's hover tooltip. When a limit gets high, a colored alert dot appears in the status bar (yellow at 70% used, red at 90%). Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
+          "description": "Show your Claude plan's usage limits in the status bar: the session (5-hour) limit with its reset time, and the weekly limit, as two items coloured yellow from 70% used and red from 90%. Their hover and the gauge's hover give the reset times in full. Only available on subscription plans (Pro/Max), once Claude Code reports limit data."
         },
         "fuel-gauge.manageStatusLine": {
           "type": "boolean",

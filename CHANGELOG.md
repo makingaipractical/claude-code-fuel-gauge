@@ -2,8 +2,9 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
-## v0.9.4 — unreleased (dated on the day it ships)
+## v0.10.0 (unreleased)
 
+- The status bar takes the look of the Brain Drain mod: `🧠 34%` `◷ 59:59` `5h 12% ↻22:40` `wk 25%` `opus·x-high`. The context gauge opens with 🧠 instead of the Claude and dashboard icons, and the cache countdown with ◷. The 5-hour and weekly limits are now always in the bar, each as its own item with its own colour: none below 70% used, yellow from 70%, red from 90%. The 5-hour item shows its reset time while it lies ahead. They replace the numberless alert dot. If you had hidden the alert dot, the 5-hour limit stays hidden: it takes over the dot's entry in the status bar's right-click menu. The weekly limit is a new entry there and shows until you hide it. `fuel-gauge.showUsage: false` still hides both.
 - Show Diagnostics has a new line, "Brain Drain mod". It names the newest session file the mod wrote in the last 36 hours and its age, or says there is none.
 - Show Diagnostics now says what the mod means for the status line: that Brain Drain left it alone and Connect Status Line takes it, or, when the bridge holds it and the mod is writing, that Restore Previous Status Line gives your own back.
 - Show Diagnostics now reads managed settings on Linux and WSL (`/etc/claude-code/`), and on every platform reads the `.json` files in `managed-settings.d/`. A policy file there that switches hooks off is now named.
