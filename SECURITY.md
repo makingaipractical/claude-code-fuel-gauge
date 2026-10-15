@@ -9,7 +9,7 @@ It reads and writes these files, and nothing else:
 
 | File or folder | What the extension does with it |
 | --- | --- |
-| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. Every other setting is left as it was. |
+| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. While the Brain Drain mod feeds the gauge, it does neither until you run Connect Status Line. Every other setting is left as it was. |
 | `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, the extension copies it aside first, to `context-bridge.sh.fuel-gauge.orig`. |
 | `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file and keeps two token counters from it, to find out whether your prompt cache lasts five minutes or an hour. Message text is never stored or sent anywhere, and nothing is written there. |

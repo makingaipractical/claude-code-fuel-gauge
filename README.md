@@ -120,7 +120,7 @@ Brain Drain asks before taking the slot, saves what was there, and can put it ba
 
 The bridge and your own status line cannot run at the same time. That is a Claude Code limitation, not a choice I made.
 
-**To keep your own status line,** choose **Not now** when Brain Drain asks, and install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the session file to `~/.claude/fuel-gauge/` itself, with the same fields, and the gauge reads it from there: context percentage, cache countdown, model·effort and the usage limits.
+**To keep your own status line,** install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the session file to `~/.claude/fuel-gauge/` itself, with the same fields, and the gauge reads it from there: context percentage, cache countdown, model·effort and the usage limits. While the mod has written a session file in the last 36 hours, Brain Drain does not ask for the status line at all. If the extension asks before the mod is running, choose **Not now**.
 
 ## Requirements
 
@@ -154,10 +154,11 @@ To hide one item without hiding the rest, right-click the status bar. VS Code li
 
 1. Restart the Claude Code session. This also fixes numbers that have stopped updating.
 2. Accept the folder's workspace-trust prompt. Claude Code runs the status line command only in a trusted folder.
-3. Check that `~/.claude/settings.json` does not set `"disableAllHooks": true`, which also stops a custom status line ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview)).
+3. Check that no settings file sets `"disableAllHooks": true`, which also stops a custom status line ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview)). On a computer your organization manages, `allowManagedHooksOnly` does the same: Claude Code then reads the status line from managed settings only ([settings reference](https://code.claude.com/docs/en/settings-reference#what-runs-under-allowmanagedhooksonly)).
 4. Look for a red **wrong folder** item (see [Known issues](#known-issues)).
 5. Check that the project's own `.claude/settings.json` or `.claude/settings.local.json` does not set a `statusLine`. A setting there overrides the one in `~/.claude/settings.json` ([settings docs](https://code.claude.com/docs/en/settings)), so Claude Code runs that status line instead of Brain Drain's.
-6. Run **Brain Drain: Show Diagnostics**. It names any of these files that is in the way.
+6. If you start Claude Code with `CLAUDE_CONFIG_DIR` set, it keeps its settings in that folder instead of `~/.claude` ([environment variables](https://code.claude.com/docs/en/env-vars)), so the status line Brain Drain set up in `~/.claude/settings.json` does not run in those sessions. Copy the `statusLine` entry into that folder's `settings.json`.
+7. Run **Brain Drain: Show Diagnostics**. It names any of these files that is in the way, and checks a `CLAUDE_CONFIG_DIR` folder when VS Code itself was started with the variable set.
 
 ## Known issues
 
@@ -183,7 +184,7 @@ No API calls, no telemetry, no runtime dependencies, no account. Everything runs
 
 | File or folder | What Brain Drain does with it |
 | --- | --- |
-| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. Every other setting is left as it was. |
+| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. While the Brain Drain mod feeds the gauge, it does neither until you run Connect Status Line. Every other setting is left as it was. |
 | `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, it is copied aside first, to `context-bridge.sh.fuel-gauge.orig`. |
 | `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file and keeps two token counters from it, to find out whether your prompt cache lasts five minutes or an hour. Message text is never stored or sent anywhere, and nothing is written there. |
@@ -200,6 +201,8 @@ This is a community tool. Not made by, endorsed by, or affiliated with Anthropic
 Maintained, by one person. Every release is listed with its date in [CHANGELOG.md](CHANGELOG.md).
 
 ## Version history
+
+**v0.9.3** — Brain Drain leaves Claude Code's status line alone while the Brain Drain mod feeds the gauge, so you can keep your own. **Show Diagnostics** names more of what keeps the gauge dark: a setting that switches custom status lines off, a project's own status line, or a `CLAUDE_CONFIG_DIR` folder. The gauge no longer shows an old reading as current when it cannot read its session folder.
 
 **v0.9.2** — Renamed from Claude Code Fuel Gauge to Brain Drain for Claude Code; the extension id, your `fuel-gauge.*` settings and the `~/.claude/fuel-gauge/` folder are unchanged. A red **wrong folder** item appears when Claude starts in a folder this window does not have open. A context window that Claude Code reports as smaller than the tokens in it is shown with a warning instead of a confident number.
 
