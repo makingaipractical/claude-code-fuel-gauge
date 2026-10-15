@@ -102,22 +102,33 @@ Module._load = function (request, ...args) {
   return origLoad.call(this, request, ...args);
 };
 
-// Claude Code's managed-settings.json sits at a fixed system path, outside
-// HOME, so the sandbox cannot reach it by itself (#4946). Reads of that path
-// are sent to <sandbox>/managed/managed-settings.json instead, so a real
-// managed file on the test machine cannot change a result. The extension
-// takes `fs` with a plain require, so it sees this same function.
-const MANAGED_PATHS = new Set([
-  path.join('/Library/Application Support/ClaudeCode', 'managed-settings.json'),
-  path.join('C:\\Program Files\\ClaudeCode', 'managed-settings.json'),
-]);
+// Claude Code's managed settings sit in a fixed system folder, outside HOME,
+// so the sandbox cannot reach them by itself (#4946). Reads of anything in
+// that folder (managed-settings.json and the managed-settings.d/ files) are
+// sent to <sandbox>/managed/ instead, so a real managed file on the test
+// machine cannot change a result. The extension takes `fs` with a plain
+// require, so it sees these same functions.
+const MANAGED_DIRS = ['/Library/Application Support/ClaudeCode', 'C:\\Program Files\\ClaudeCode', '/etc/claude-code'];
+const managedRedirect = (p) => {
+  if (typeof p !== 'string') return p;
+  for (const d of MANAGED_DIRS) {
+    if (p === d || p.startsWith(d + '/') || p.startsWith(d + '\\')) {
+      return path.join(TMPROOT, 'managed', p.slice(d.length + 1));
+    }
+  }
+  return p;
+};
+// The folder the extension reads on this platform, as it prints it.
+const MANAGED_DIR = process.platform === 'darwin' ? MANAGED_DIRS[0]
+  : process.platform === 'win32' ? MANAGED_DIRS[1] : MANAGED_DIRS[2];
 const managedSettingsPath = () => path.join(TMPROOT, 'managed', 'managed-settings.json');
 const origReadFileSync = fs.readFileSync;
 fs.readFileSync = function (p, ...args) {
-  if (typeof p === 'string' && MANAGED_PATHS.has(p)) {
-    return origReadFileSync.call(this, managedSettingsPath(), ...args);
-  }
-  return origReadFileSync.call(this, p, ...args);
+  return origReadFileSync.call(this, managedRedirect(p), ...args);
+};
+const origReaddirSync = fs.readdirSync;
+fs.readdirSync = function (p, ...args) {
+  return origReaddirSync.call(this, managedRedirect(p), ...args);
 };
 
 function freshSandbox(name) {
@@ -1720,8 +1731,7 @@ async function run(name, fn) {
 
   // 33b. allowManagedHooksOnly counts only in managed settings (#4946). The
   //      managed file is read through the redirect above, never the real one.
-  //      Linux has no managed path in the extension, so it is skipped there.
-  if (process.platform === 'darwin' || process.platform === 'win32') {
+  {
     await run('diagnostics-managed-hooks-only', async (ext) => {
       const ws = path.join(TMPROOT, 'work');
       fs.mkdirSync(ws, { recursive: true });
@@ -1827,6 +1837,140 @@ async function run(name, fn) {
       delete process.env.CLAUDE_CONFIG_DIR;
       if (typeof ext.deactivate === 'function') { ext.deactivate(); }
     }
+  });
+
+  // 35. SHOW DIAGNOSTICS SAYS WHETHER THE MOD IS WRITING (#5316). The newest
+  //     "writer":"mod" file from the last 36 hours, in either folder the mod
+  //     writes to; older files and files the bridge wrote do not count.
+  await run('diagnostics-mod-line', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    const modLine = () => outputLines.find((l) => l.startsWith('Brain Drain mod')) ?? '';
+    const expect = (v) => 'Brain Drain mod'.padEnd(28) + ' ' + v;
+    const none = 'no session file from the mod in the last 36 hours';
+
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('with no mod file Diagnostics says so', modLine() === expect(none), modLine());
+
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const modDir = path.join(TMPROOT, '.claude', 'fuel-gauge-mod');
+    fs.mkdirSync(fgDir, { recursive: true });
+    fs.mkdirSync(modDir, { recursive: true });
+    const put = (dir, name, body, minutesAgo) => {
+      const p = path.join(dir, name);
+      fs.writeFileSync(p, JSON.stringify(body));
+      const t = (Date.now() - minutesAgo * 60000) / 1000;
+      fs.utimesSync(p, t, t);
+    };
+    put(fgDir, 'bridge-made.json', { session_id: 'bridge-made' }, 0);
+    put(modDir, 'too-old.json', { writer: 'mod' }, 37 * 60);
+    fs.writeFileSync(path.join(modDir, 'half.json'), '{"writer":"mo');
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('a bridge file, an old mod file and a broken file do not count',
+      modLine() === expect(none), modLine());
+
+    put(modDir, 'mod-a.json', { writer: 'mod' }, 12);
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('a mod file in fuel-gauge-mod is named with its age',
+      modLine() === expect('wrote fuel-gauge-mod/mod-a.json 12 min ago'), modLine());
+
+    put(fgDir, 'mod-b.json', { writer: 'mod' }, 3);
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('the newest mod file wins, in either folder',
+      modLine() === expect('wrote fuel-gauge/mod-b.json 3 min ago'), modLine());
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 35c. WHAT THE MOD MEANS FOR THE STATUS LINE (#4960, #5316). Both lines
+  //      read the owner from settings.json as it is now, so a window whose
+  //      in-memory owner went stale prints only the line that is true.
+  const ITEM2 = 'left alone: the mod has written a session file in the last 36 hours, so Brain Drain ' +
+    'did not ask for Claude Code\'s status line. Brain Drain: Connect Status Line takes it.';
+  const ITEM3 = 'the mod is writing, so the bridge is not needed: Brain Drain: Restore Previous Status ' +
+    'Line gives your own status line back, and the mod then feeds the gauge.';
+  const statusLines = () => outputLines.filter((l) => l.startsWith('Status line '));
+  const asLine = (v) => 'Status line'.padEnd(28) + ' ' + v;
+  const modSession = (folder, id) => {
+    const dir = path.join(TMPROOT, '.claude', folder);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify({ session_id: id, writer: 'mod' }));
+  };
+
+  await run('diagnostics-status-line-left-to-mod', async (ext) => {
+    const body = JSON.stringify({ statusLine: { type: 'command', command: '/opt/mine.sh' } }, null, 2) + '\n';
+    fs.writeFileSync(settingsPath, body);
+    modSession('fuel-gauge', 'mod-live');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('with the mod writing and the slot left alone, Diagnostics says why and how to take it, touching nothing',
+      statusLines().length === 1 && statusLines()[0] === asLine(ITEM2) &&
+      fs.readFileSync(settingsPath, 'utf-8') === body, outputLines.join('\n'));
+
+    // The 4-step sequence: owner 'mod' in memory, then settings.json comes to
+    // run our bridge behind this window's back, and the mod moves to
+    // fuel-gauge-mod. Only the line that is true now prints.
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2));
+    modSession('fuel-gauge-mod', 'mod-moved');
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('a stale in-memory owner does not print both lines: only the bridge-not-needed one',
+      outputLines.some((l) => l.includes('In-memory owner') && l.endsWith(' mod')) &&
+      statusLines().length === 1 && statusLines()[0] === asLine(ITEM3), outputLines.join('\n'));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  await run('diagnostics-status-line-bridge-not-needed', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2));
+    modSession('fuel-gauge', 'mod-old-folder');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    await registered['fuel-gauge.showBridgeStatus']();
+    const withOldFolderOnly = statusLines().length;
+    modSession('fuel-gauge-mod', 'mod-beside-bridge');
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('with our bridge wired, a mod file in fuel-gauge-mod (not fuel-gauge) makes Diagnostics offer Restore',
+      withOldFolderOnly === 0 && statusLines().length === 1 && statusLines()[0] === asLine(ITEM3), outputLines.join('\n'));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  // 35b. MANAGED-SETTINGS.D IS READ (#5316). Claude Code reads an optional
+  //      managed-settings.d/ folder beside managed-settings.json (managed-
+  //      settings docs, read 15 October 2026), so a file there can switch the
+  //      status line off too. Read through the redirect above, in sorted order.
+  await run('diagnostics-managed-settings-d', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    const dropIn = path.join(TMPROOT, 'managed', 'managed-settings.d');
+    fs.mkdirSync(dropIn, { recursive: true });
+    fs.writeFileSync(path.join(dropIn, '20-hooks.json'), JSON.stringify({ allowManagedHooksOnly: true }));
+    fs.writeFileSync(path.join(dropIn, '10-all.json'), JSON.stringify({ disableAllHooks: true }));
+    fs.writeFileSync(path.join(dropIn, 'notes.txt'), JSON.stringify({ disableAllHooks: true }));
+    await registered['fuel-gauge.showBridgeStatus']();
+    const verdict = outputLines.find((l) => l.startsWith('Hooks and status line')) ?? '';
+    const named = (f, key) => `${path.join(MANAGED_DIR, 'managed-settings.d', f)} sets ${key}`;
+    check('a managed-settings.d file setting allowManagedHooksOnly is named',
+      verdict.includes('SWITCHED OFF') && verdict.includes(named('20-hooks.json', 'allowManagedHooksOnly')), verdict);
+    check('the managed-settings.d .json files are read in sorted order, other files not at all',
+      !verdict.includes('notes.txt') && verdict.indexOf(named('10-all.json', 'disableAllHooks')) > -1 &&
+      verdict.indexOf(named('10-all.json', 'disableAllHooks')) < verdict.indexOf(named('20-hooks.json', 'allowManagedHooksOnly')),
+      verdict);
+
+    // On Linux and WSL the folder is /etc/claude-code (same docs).
+    const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    fs.rmSync(dropIn, { recursive: true });
+    fs.writeFileSync(managedSettingsPath(), JSON.stringify({ allowManagedHooksOnly: true }));
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    try {
+      await registered['fuel-gauge.showBridgeStatus']();
+    } finally {
+      Object.defineProperty(process, 'platform', realPlatform);
+    }
+    const linux = outputLines.find((l) => l.startsWith('Hooks and status line')) ?? '';
+    check('on Linux the managed file in /etc/claude-code is read',
+      linux.includes('/etc/claude-code/managed-settings.json sets allowManagedHooksOnly'), linux);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
   // 35. THE PROJECT FOLDER'S OWN PYTHON FILES NEVER RUN (#4953). Claude Code
