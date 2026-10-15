@@ -10,7 +10,7 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 - **Show Diagnostics** reuses one entry in the Output panel instead of adding a new one each time it runs.
 - Upgrading no longer leaves a copy of the previous bridge as `context-bridge.sh.fuel-gauge.orig`. A bridge you edited by hand is still copied aside before it is replaced. Bridges installed before this version carry no mark of being ours, so the first upgrade copies one aside a last time.
 - The bridge starts Python once per update instead of twice, and refuses a session id that is not a plain file name.
-- With the Brain Drain mod: the bridge leaves alone a session file the mod is writing, and the extension does not ask for Claude Code's status line while the mod has written a session file in the last 36 hours. **Connect Status Line** still takes it when you ask.
+- With the Brain Drain mod: the bridge leaves alone a session file the mod wrote in the last 30 seconds, and takes it back once the mod has moved out after **Connect Status Line**, so that session's gauge keeps updating. The extension also does not ask for Claude Code's status line while the mod has written a session file in the last 36 hours. **Connect Status Line** still takes it when you ask.
 
 ## v0.9.2 — 2026-10-11
 
