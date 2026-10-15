@@ -1882,6 +1882,58 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 35c. WHAT THE MOD MEANS FOR THE STATUS LINE (#4960, #5316). Both lines
+  //      read the owner from settings.json as it is now, so a window whose
+  //      in-memory owner went stale prints only the line that is true.
+  const ITEM2 = 'left alone: the mod has written a session file in the last 36 hours, so Brain Drain ' +
+    'did not ask for Claude Code\'s status line. Brain Drain: Connect Status Line takes it.';
+  const ITEM3 = 'the mod is writing, so the bridge is not needed: Brain Drain: Restore Previous Status ' +
+    'Line gives your own status line back, and the mod then feeds the gauge.';
+  const statusLines = () => outputLines.filter((l) => l.startsWith('Status line '));
+  const asLine = (v) => 'Status line'.padEnd(28) + ' ' + v;
+  const modSession = (folder, id) => {
+    const dir = path.join(TMPROOT, '.claude', folder);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify({ session_id: id, writer: 'mod' }));
+  };
+
+  await run('diagnostics-status-line-left-to-mod', async (ext) => {
+    const body = JSON.stringify({ statusLine: { type: 'command', command: '/opt/mine.sh' } }, null, 2) + '\n';
+    fs.writeFileSync(settingsPath, body);
+    modSession('fuel-gauge', 'mod-live');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('with the mod writing and the slot left alone, Diagnostics says why and how to take it, touching nothing',
+      statusLines().length === 1 && statusLines()[0] === asLine(ITEM2) &&
+      fs.readFileSync(settingsPath, 'utf-8') === body, outputLines.join('\n'));
+
+    // The 4-step sequence: owner 'mod' in memory, then settings.json comes to
+    // run our bridge behind this window's back, and the mod moves to
+    // fuel-gauge-mod. Only the line that is true now prints.
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2));
+    modSession('fuel-gauge-mod', 'mod-moved');
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('a stale in-memory owner does not print both lines: only the bridge-not-needed one',
+      outputLines.some((l) => l.includes('In-memory owner') && l.endsWith(' mod')) &&
+      statusLines().length === 1 && statusLines()[0] === asLine(ITEM3), outputLines.join('\n'));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
+  await run('diagnostics-status-line-bridge-not-needed', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2));
+    modSession('fuel-gauge', 'mod-old-folder');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    await registered['fuel-gauge.showBridgeStatus']();
+    const withOldFolderOnly = statusLines().length;
+    modSession('fuel-gauge-mod', 'mod-beside-bridge');
+    await registered['fuel-gauge.showBridgeStatus']();
+    check('with our bridge wired, a mod file in fuel-gauge-mod (not fuel-gauge) makes Diagnostics offer Restore',
+      withOldFolderOnly === 0 && statusLines().length === 1 && statusLines()[0] === asLine(ITEM3), outputLines.join('\n'));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   // 35b. MANAGED-SETTINGS.D IS READ (#5316). Claude Code reads an optional
   //      managed-settings.d/ folder beside managed-settings.json (managed-
   //      settings docs, read 15 October 2026), so a file there can switch the

@@ -1379,6 +1379,19 @@ function showBridgeStatus() {
     ? `wrote ${modFile.folder}/${modFile.file} ${Math.round((Date.now() - modFile.mtimeMs) / 60000)} min ago`
     : 'no session file from the mod in the last 36 hours');
 
+  // What that means for the status line (#4960, #5316). Both lines take the
+  // owner from the fresh read of settings.json above, so they cannot both
+  // print: the in-memory owner is set at activation and by Connect and Restore,
+  // and goes stale when settings.json changes underneath this window.
+  const freshOwner = read.kind === 'ok' ? classifyStatusLine(read.settings, bridgePath).owner : undefined;
+  if (freshOwner === 'ours' && newestModFile(['fuel-gauge-mod'])) {
+    add('Status line', 'the mod is writing, so the bridge is not needed: Brain Drain: Restore Previous ' +
+      'Status Line gives your own status line back, and the mod then feeds the gauge.');
+  } else if (statusLineOwner === 'mod' && freshOwner !== 'ours') {
+    add('Status line', 'left alone: the mod has written a session file in the last 36 hours, so Brain ' +
+      'Drain did not ask for Claude Code\'s status line. Brain Drain: Connect Status Line takes it.');
+  }
+
   // Two settings switch a custom status line off without a word (#4946; the
   // statusline docs' troubleshooting section, 31 August):
   // allowManagedHooksOnly in managed settings, and disableAllHooks anywhere.
