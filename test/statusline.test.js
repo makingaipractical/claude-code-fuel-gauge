@@ -1557,6 +1557,40 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 32b. A PROJECT'S OWN STATUS LINE IS NAMED AS THE REASON THE GAUGE IS DARK
+  //      (#4950). A statusLine in the folder's .claude/settings.json outranks
+  //      ~/.claude, so the bridge never runs for sessions started there and
+  //      the gauge hides. The line that answers "why is it hidden" names the
+  //      file; nothing is written to it.
+  await run('diagnostics-project-statusline', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(path.join(ws, '.claude'), { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    const projectShared = path.join(ws, '.claude', 'settings.json');
+    const projectBody = JSON.stringify({ statusLine: { type: 'command', command: 'echo project' } }, null, 2);
+    fs.writeFileSync(projectShared, projectBody);
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+
+    await registered['fuel-gauge.showBridgeStatus']();
+    const report = outputLines.join('\n');
+    const verdict = outputLines.find((l) => l.startsWith('Session for this workspace')) ?? '';
+    check('the no-session line names the project file that holds the status line',
+      verdict.includes('NONE') && verdict.includes(projectShared), report);
+    check('and says that file wins over Brain Drain', verdict.includes('instead of Brain Drain'), report);
+    check('the project file is left exactly as it was',
+      fs.readFileSync(projectShared, 'utf-8') === projectBody);
+
+    // A project file that runs our own bridge is not blamed.
+    fs.writeFileSync(projectShared, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2));
+    await registered['fuel-gauge.showBridgeStatus']();
+    const ownVerdict = outputLines.find((l) => l.startsWith('Session for this workspace')) ?? '';
+    check('a project file pointing at our bridge is not named as the cause',
+      ownVerdict.includes('NONE') && !ownVerdict.includes(projectShared), outputLines.join('\n'));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   // 33. AFTER RESTORE THE READOUTS GO DARK (#4952, item 2). The modal promises
   //     it; session files the bridge wrote before Restore used to keep the
   //     gauge lit for up to 36 hours. A file written after Restore (a Claude
