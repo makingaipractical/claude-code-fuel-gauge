@@ -943,8 +943,19 @@ function installBridgeScript(): BridgeInstall {
     if (fs.existsSync(bridgePath)) {
       const onDisk = fs.readFileSync(bridgePath, 'utf-8');
       const origPath = bridgePath + '.fuel-gauge.orig';
-      if (onDisk !== STAMPED_BRIDGE && !isUneditedOwnBridge(onDisk) && !fs.existsSync(origPath)) {
-        fs.copyFileSync(bridgePath, origPath);
+      // The first hand edit goes to .orig and stays there. A later, different
+      // edit goes to one rolling second copy, so it is never overwritten
+      // without a copy and the copies stop at two files.
+      const latestPath = bridgePath + '.fuel-gauge.orig.latest';
+      const sameAs = (p: string) => {
+        try { return fs.readFileSync(p, 'utf-8') === onDisk; } catch { return false; }
+      };
+      if (onDisk !== STAMPED_BRIDGE && !isUneditedOwnBridge(onDisk)) {
+        if (!fs.existsSync(origPath)) {
+          fs.copyFileSync(bridgePath, origPath);
+        } else if (!sameAs(origPath) && !sameAs(latestPath)) {
+          fs.copyFileSync(bridgePath, latestPath);
+        }
       }
     }
   } catch {

@@ -326,6 +326,59 @@ async function run(name, fn) {
     check('orig holds the user edits', fs.readFileSync(bp + '.fuel-gauge.orig', 'utf-8').includes('my own edits'));
   });
 
+  // 10a. A SECOND HAND EDIT is copied aside too, once .fuel-gauge.orig exists.
+  //      Up to v0.9.3 an existing .orig meant no copy at all, so the later
+  //      edit was overwritten. It now goes to one rolling .fuel-gauge.orig.latest.
+  await run('bridge-preserve-second-edit', async (ext) => {
+    const bp = bridgePath();
+    const orig = bp + '.fuel-gauge.orig';
+    const latest = bp + '.fuel-gauge.orig.latest';
+    fs.mkdirSync(path.dirname(bp), { recursive: true });
+    fs.writeFileSync(orig, '#!/bin/bash\n# edit A\n');
+    fs.writeFileSync(bp, '#!/bin/bash\n# edit B\n', { mode: 0o755 });
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bp } }, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    check('a second hand edit is copied to .fuel-gauge.orig.latest',
+      fs.existsSync(latest) && fs.readFileSync(latest, 'utf-8').includes('edit B'));
+    check('.fuel-gauge.orig still holds the first edit',
+      fs.readFileSync(orig, 'utf-8').includes('edit A'));
+    check('and the bridge is replaced', !fs.readFileSync(bp, 'utf-8').includes('edit B'));
+
+    // A third, different edit replaces the rolling copy; .orig stays.
+    fs.writeFileSync(bp, '#!/bin/bash\n# edit C\n', { mode: 0o755 });
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    check('a third edit replaces the rolling copy',
+      fs.existsSync(latest) && fs.readFileSync(latest, 'utf-8').includes('edit C'));
+    check('the first edit is still in .fuel-gauge.orig',
+      fs.readFileSync(orig, 'utf-8').includes('edit A'));
+    const copies = fs.readdirSync(path.dirname(bp)).filter((f) => f.startsWith('context-bridge.sh.'));
+    check('never more than two copies beside the bridge', copies.length === 2, copies.join(','));
+  });
+
+  // 10a'. Guards: no rolling copy when the script on disk equals .orig, or
+  //       when it is our own bridge.
+  await run('bridge-preserve-no-extra-copy', async (ext) => {
+    const bp = bridgePath();
+    const orig = bp + '.fuel-gauge.orig';
+    const latest = bp + '.fuel-gauge.orig.latest';
+    fs.mkdirSync(path.dirname(bp), { recursive: true });
+    fs.writeFileSync(orig, '#!/bin/bash\n# edit A\n');
+    fs.writeFileSync(bp, '#!/bin/bash\n# edit A\n', { mode: 0o755 });
+    fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bp } }, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    check('a script equal to .fuel-gauge.orig gets no second copy', !fs.existsSync(latest));
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    check('our own bridge gets no second copy', !fs.existsSync(latest));
+  });
+
   // 10b. OUR OWN OLDER BRIDGE IS NOT A HAND EDIT (#4945). Every version bump
   //      used to copy the previous version aside as .fuel-gauge.orig, because
   //      "differs from this version" was the only test. An unedited bridge
