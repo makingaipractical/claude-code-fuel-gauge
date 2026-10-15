@@ -2345,6 +2345,9 @@ async function run(name, fn) {
     await run('mod-look-abandoned', async (ext) => {
       const nowSec = Date.now() / 1000;
       const it = await show(ext, { timestamp: nowSec - 7200, rate_limit_5h_pct: 95, rate_limit_7d_pct: 95 });
+      check('an abandoned session still shows the gauge, without colour',
+        it.context.visible === true && it.context.color === undefined && it.context.text === '🧠 34%',
+        `${it.context.visible} ${it.context.text} ${it.context.color && it.context.color.id}`);
       check('an abandoned session hides the 5-hour item', it.h5.visible === false);
       check('and the weekly item', !!it.wk && it.wk.visible === false);
       end(ext);
