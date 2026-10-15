@@ -467,6 +467,7 @@ let statusBarItem: vscode.StatusBarItem;
 let cacheStatusBarItem: vscode.StatusBarItem;
 let effortStatusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
+let weeklyStatusBarItem: vscode.StatusBarItem;
 let wrongFolderItem: vscode.StatusBarItem | undefined;
 /** A `claude` this window's own terminal started outside the folders the window
  *  has open. Set by the shell-integration listener, cleared when that execution
@@ -825,26 +826,38 @@ export function activate(context: vscode.ExtensionContext) {
   cacheStatusBarItem.name = 'Brain Drain: cache countdown';
   context.subscriptions.push(cacheStatusBarItem);
 
+  // The 5-hour item keeps the id the old usage alert dot had, so anyone who
+  // hid the dot keeps usage out of the bar. The weekly figure is new and gets
+  // an id of its own. Priorities only set the order (higher sits further left),
+  // so they may be renumbered; ids must not change.
+  usageStatusBarItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.usage',
+    vscode.StatusBarAlignment.Right,
+    98
+  );
+  usageStatusBarItem.name = 'Brain Drain: 5-hour limit';
+  context.subscriptions.push(usageStatusBarItem);
+
+  weeklyStatusBarItem = vscode.window.createStatusBarItem(
+    'fuel-gauge.usage-weekly',
+    vscode.StatusBarAlignment.Right,
+    97
+  );
+  weeklyStatusBarItem.name = 'Brain Drain: weekly limit';
+  context.subscriptions.push(weeklyStatusBarItem);
+
   effortStatusBarItem = vscode.window.createStatusBarItem(
     'fuel-gauge.modelEffort',
     vscode.StatusBarAlignment.Right,
-    98
+    96
   );
   effortStatusBarItem.name = 'Brain Drain: model and effort';
   context.subscriptions.push(effortStatusBarItem);
 
-  usageStatusBarItem = vscode.window.createStatusBarItem(
-    'fuel-gauge.usage',
-    vscode.StatusBarAlignment.Right,
-    97
-  );
-  usageStatusBarItem.name = 'Brain Drain: usage alert';
-  context.subscriptions.push(usageStatusBarItem);
-
   wrongFolderItem = vscode.window.createStatusBarItem(
     'fuel-gauge.wrongFolder',
     vscode.StatusBarAlignment.Right,
-    96
+    95
   );
   wrongFolderItem.name = 'Brain Drain: wrong folder';
   context.subscriptions.push(wrongFolderItem);
@@ -1731,6 +1744,7 @@ function updateStatus() {
     statusBarItem.hide();
     cacheStatusBarItem.hide();
     usageStatusBarItem.hide();
+    weeklyStatusBarItem.hide();
   }
 }
 
@@ -1805,6 +1819,13 @@ function maybePlayCacheWarningBeep(data: ContextStatus, remaining: number) {
 const COLOR_RED = new vscode.ThemeColor('charts.red');
 const COLOR_YELLOW = new vscode.ThemeColor('charts.yellow');
 const COLOR_GREEN = new vscode.ThemeColor('charts.green');
+
+// The glyphs that open the context, cache and reset-time readouts, as the mod
+// draws them in the terminal. Kept here so that swapping one for a codicon
+// (no newer than VS Code 1.93, the engine floor) is a one-line change.
+const CONTEXT_GLYPH = '🧠';
+const CACHE_GLYPH = '◷';
+const RESET_GLYPH = '↻';
 
 // The bridge raises window_implausible on any of three checks (#3070). The
 // hover must name the contradiction that actually holds: "a window of 200,000
@@ -1949,13 +1970,31 @@ function formatResetSuffix(epochSeconds: number | undefined, weekly: boolean): s
   return ` · resets ${day}, ${time}`;
 }
 
-// Session/weekly usage limits (statusline rate_limits pass-through). Usage
-// lives in the main gauge's hover tooltip; this returns that tooltip fragment
-// for the caller to fold in. The standalone chip only reappears in the bar as
-// a warning light when a limit is elevated (severity >= 1: yellow >=70%, red
-// >=90%). Returns '' — and shows nothing — when disabled, no session, stale
-// file, or Claude Code sent no limit data (API-key plans; before the session's
-// first response). Absent data renders as nothing, never as 0%.
+// Local wall-clock time in 24-hour form, `22:40`, for the reset time in the
+// bar. It matches the mod's clock() on purpose. The hovers keep the machine's
+// own clock format (formatResetSuffix, formatClockTime).
+function clock24(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// A limit figure carries no colour while it is low, then yellow from 70% and
+// red from 90%. The shared ThemeColor instances keep the reference stable.
+function usageColor(pct: number): vscode.ThemeColor | undefined {
+  const sev = usageSeverity(pct);
+  return sev === 0 ? undefined : severityColor(sev);
+}
+
+// Session (5-hour) and weekly usage limits (statusline rate_limits
+// pass-through), drawn as two items the way the mod draws them:
+// `5h 12% ↻22:40` and `wk 25%`. Two items, not one, because a status bar item
+// has one colour and each figure is coloured by its own threshold. The reset
+// time shows only while it lies ahead. Both items carry the same hover with
+// both lines and their reset times; the fragment is also returned for the
+// main gauge's hover. Each item hides when its figure is absent (API-key plans;
+// before the session's first response), and both hide when showUsage is off,
+// with no session, or on a stale file. Absent data renders as nothing, never
+// as 0%.
 function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): string {
   const config = vscode.workspace.getConfiguration('fuel-gauge');
   const show = config.get<boolean>('showUsage', true);
@@ -1965,40 +2004,41 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): s
 
   if (!show || !data || fileAbandoned || (pct5h < 0 && pct7d < 0)) {
     usageStatusBarItem.hide();
+    weeklyStatusBarItem.hide();
     return '';
   }
 
   const tipLines: string[] = [];
-  let severity = 0;
-
   if (pct5h >= 0) {
     tipLines.push(`Session limit (5h): ${Math.round(pct5h)}% used${formatResetSuffix(data.rate_limit_5h_reset, false)}`);
-    severity = Math.max(severity, usageSeverity(pct5h));
   }
   if (pct7d >= 0) {
     tipLines.push(`Weekly limit (all models): ${Math.round(pct7d)}% used${formatResetSuffix(data.rate_limit_7d_reset, true)}`);
-    severity = Math.max(severity, usageSeverity(pct7d));
   }
-
   const tipFragment = tipLines.join('<br>');
 
-  // Warning-light behavior: usage normally lives only in the hover tooltip
-  // (returned below). When a limit is elevated the chip reappears in the bar
-  // as a numberless alert light — a single colored dot, no percentages or
-  // labels (those stay in the dot's own hover) — colored by the more urgent
-  // of the two windows. The dot signals "you're running hot" without adding
-  // more figures to the bar.
-  if (severity >= 1) {
-    const md = new vscode.MarkdownString(undefined, true);
-    md.supportHtml = true;
-    md.appendMarkdown(tipFragment);
+  const md = new vscode.MarkdownString(undefined, true);
+  md.supportHtml = true;
+  md.appendMarkdown(tipFragment);
 
-    usageStatusBarItem.text = '$(circle-filled)';
-    usageStatusBarItem.color = severityColor(severity);
+  if (pct5h >= 0) {
+    const reset = data.rate_limit_5h_reset ?? 0;
+    const ahead = reset > Date.now() / 1000;
+    usageStatusBarItem.text = `5h ${Math.round(pct5h)}%${ahead ? ` ${RESET_GLYPH}${clock24(reset)}` : ''}`;
+    usageStatusBarItem.color = usageColor(pct5h);
     usageStatusBarItem.tooltip = md;
     usageStatusBarItem.show();
   } else {
     usageStatusBarItem.hide();
+  }
+
+  if (pct7d >= 0) {
+    weeklyStatusBarItem.text = `wk ${Math.round(pct7d)}%`;
+    weeklyStatusBarItem.color = usageColor(pct7d);
+    weeklyStatusBarItem.tooltip = md;
+    weeklyStatusBarItem.show();
+  } else {
+    weeklyStatusBarItem.hide();
   }
 
   return tipFragment;
@@ -2014,17 +2054,17 @@ function renderStatus() {
 
   // Ultimate file-age safety floor: if the bridge file hasn't updated in over
   // an hour the session is genuinely abandoned — strip color below, and hide
-  // the usage item (stale limit numbers mislead).
+  // the limit items (stale limit numbers mislead).
   const fileAbandoned = data
     ? ((Date.now() / 1000) - data.timestamp) > 3600
     : false;
-  // Usage lives in the main gauge's hover tooltip; renderUsage returns that
-  // fragment (and independently pops its own warning dot when a limit is high).
+  // renderUsage draws the two limit items and returns the hover fragment that
+  // the main gauge's tooltip also carries.
   const usageTip = renderUsage(data, fileAbandoned);
 
   if (!data) {
     if (statusLineOwner === 'foreign' || statusLineOwner === 'optout') {
-      statusBarItem.text = '$(claude)$(dashboard) $(warning)';
+      statusBarItem.text = `${CONTEXT_GLYPH} $(warning)`;
       statusBarItem.color = undefined;
       statusBarItem.tooltip =
         statusLineOwner === 'optout'
@@ -2046,6 +2086,7 @@ function renderStatus() {
     cacheStatusBarItem.hide();
     effortStatusBarItem.hide();
     usageStatusBarItem.hide();
+    weeklyStatusBarItem.hide();
     return;
   }
 
@@ -2088,10 +2129,10 @@ function renderStatus() {
   // Main item: context percentage only. The cache countdown is a separate item
   // (below) so it can carry its own urgency color independent of context.
   statusBarItem.text = contextUnknown
-    ? `$(claude)$(dashboard) ~${pct}%`
+    ? `${CONTEXT_GLYPH} ~${pct}%`
     : windowImplausible
-      ? `$(claude)$(dashboard) ${pct}% $(warning)`
-      : `$(claude)$(dashboard) ${pct}%`;
+      ? `${CONTEXT_GLYPH} ${pct}% $(warning)`
+      : `${CONTEXT_GLYPH} ${pct}%`;
   statusBarItem.color = contextColor;
 
   // Cache state — only meaningful if bridge has populated last_api_call_ts.
@@ -2122,11 +2163,11 @@ function renderStatus() {
   let cacheTooltipFragment: string;
 
   if (remaining <= 0) {
-    cacheText = '$(circle-slash) expired';
+    cacheText = `${CACHE_GLYPH} expired`;
     cacheColor = COLOR_RED;
     cacheTooltipFragment = `Cache: expired (${ttlLabel})`;
   } else {
-    cacheText = formatCountdown(remaining);
+    cacheText = `${CACHE_GLYPH} ${formatCountdown(remaining)}`;
     if (remaining < 15) {
       cacheColor = COLOR_RED;
     } else if (remaining < 60) {

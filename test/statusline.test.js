@@ -162,9 +162,17 @@ function ctx() {
 
 const bridgePath = () => path.join(TMPROOT, '.claude', 'scripts', 'context-bridge.sh');
 const readSettings = () => JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-// The four status bar items, by the priority the extension gives them:
-// 100 context, 99 cache countdown, 98 model/effort, 97 usage alert.
-const barAt = (priority) => bars.find((b) => b.priority === priority);
+// The status bar items, looked up by id. Ids carry a user's hide choices and
+// never change; priorities only set the order, so tests do not lean on them.
+const ID = {
+  context: 'fuel-gauge.context',
+  cache: 'fuel-gauge.cache',
+  usage5h: 'fuel-gauge.usage',
+  usageWeekly: 'fuel-gauge.usage-weekly',
+  effort: 'fuel-gauge.modelEffort',
+  wrongFolder: 'fuel-gauge.wrongFolder',
+};
+const byId = (id) => bars.find((b) => b.id === id);
 // Fires VS Code's configuration-change event, which is the extension's own cue
 // to re-read the session directory straight away. Saves a scenario waiting out
 // the poll interval to see a change take effect.
@@ -717,16 +725,16 @@ async function run(name, fn) {
     fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
     ext.activate(ctx());
 
-    const allFour = () => [barAt(100), barAt(99), barAt(98), barAt(97)];
-    check('all four items are hidden', allFour().every((b) => b.visible === false),
-      JSON.stringify(allFour().map((b) => b.visible)));
-    check('the context item shows no leftover text', barAt(100).text === '',
-      barAt(100).text);
+    const allFour = () => [byId(ID.context), byId(ID.cache), byId(ID.effort), byId(ID.usage5h), byId(ID.usageWeekly)];
+    check('all five readout items are hidden', allFour().every((b) => !!b && b.visible === false),
+      JSON.stringify(allFour().map((b) => b && b.visible)));
+    check('the context item shows no leftover text', byId(ID.context).text === '',
+      byId(ID.context).text);
 
     // Still true a render later, once the status line setup has settled.
     await new Promise((r) => setTimeout(r, 1150));
-    check('still hidden after a re-render', allFour().every((b) => b.visible === false),
-      JSON.stringify(allFour().map((b) => b.visible)));
+    check('still hidden after a re-render', allFour().every((b) => !!b && b.visible === false),
+      JSON.stringify(allFour().map((b) => b && b.visible)));
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
@@ -740,7 +748,7 @@ async function run(name, fn) {
     ext.activate(ctx());
 
     check('nothing is shown while no session matches this folder',
-      [barAt(100), barAt(99), barAt(98), barAt(97)].every((b) => b.visible === false));
+      [byId(ID.context), byId(ID.cache), byId(ID.effort), byId(ID.usage5h)].every((b) => b.visible === false));
 
     // With nothing in the status bar, Diagnostics is the only thing that can
     // explain the empty window, so it has to name the folder and say plainly
@@ -774,11 +782,11 @@ async function run(name, fn) {
 
     fireConfigChange();
 
-    check('the gauge comes back on its own', barAt(100).visible === true);
+    check('the gauge comes back on its own', byId(ID.context).visible === true);
     check('and shows the new session percentage',
-      barAt(100).text === '$(claude)$(dashboard) 31%', barAt(100).text);
-    check('the cache countdown comes back too', barAt(99).visible === true);
-    check('so does the model and effort item', barAt(98).visible === true);
+      byId(ID.context).text === '🧠 31%', byId(ID.context).text);
+    check('the cache countdown comes back too', byId(ID.cache).visible === true);
+    check('so does the model and effort item', byId(ID.effort).visible === true);
 
     outputLines.length = 0;
     await registered['fuel-gauge.showBridgeStatus']();
@@ -1011,9 +1019,10 @@ async function run(name, fn) {
 
     ext.activate(ctx());
 
-    const context = barAt(100), cache = barAt(99), effort = barAt(98), usage = barAt(97);
+    const context = byId(ID.context), cache = byId(ID.cache), effort = byId(ID.effort), usage = byId(ID.usage5h);
+    const weekly = byId(ID.usageWeekly);
     check('context item shows the rounded percentage',
-      context.text === '$(claude)$(dashboard) 31%', context.text);
+      context.text === '🧠 31%', context.text);
     check('context item is visible', context.visible === true);
     check('context item is green below the warning threshold',
       context.color && context.color.id === 'charts.green',
@@ -1021,7 +1030,7 @@ async function run(name, fn) {
 
     check('cache countdown is visible', cache.visible === true);
     check('cache countdown shows minutes and seconds left, near 59:00',
-      /^5[89]:[0-5]\d$/.test(cache.text), cache.text);
+      /^◷ 5[89]:[0-5]\d$/.test(cache.text), cache.text);
     const expiry = new Date((lastCall + 3600) * 1000);
     const hhmm = expiry.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     check('cache hover names the deadline rather than repeating the countdown',
@@ -1043,16 +1052,19 @@ async function run(name, fn) {
 
     check('model and effort item is visible', effort.visible === true);
     check('model and effort item reads opus·high', effort.text === 'opus·high', effort.text);
-    check('usage dot stays hidden while both limits are low', usage.visible === false);
+    check('the 5-hour item shows its figure while the limit is low',
+      usage.visible === true && usage.text.startsWith('5h 12% '), usage.text);
+    check('the weekly item shows its figure',
+      !!weekly && weekly.visible === true && weekly.text === 'wk 44%', weekly && weekly.text);
 
     // Each item is named, so VS Code's status bar right-click menu can list them
     // separately and remember which ones a user hides.
-    const named = [context, cache, effort, usage];
+    const named = [context, cache, effort, usage, weekly].filter(Boolean);
     check('every item has a readable name',
       named.every((b) => typeof b.name === 'string' && b.name.startsWith('Brain Drain: ')),
       JSON.stringify(named.map((b) => b.name)));
     check('every item has its own id, so hiding one does not hide the rest',
-      new Set(named.map((b) => b.id)).size === 4, JSON.stringify(named.map((b) => b.id)));
+      new Set(named.map((b) => b.id)).size === 5, JSON.stringify(named.map((b) => b.id)));
 
     const tip = String(context.tooltip && context.tooltip.value);
     check('main hover carries the context percentage', /Context&nbsp;31%/.test(tip), tip);
@@ -1177,8 +1189,8 @@ async function run(name, fn) {
 
     ext.activate(ctx());
 
-    const context = barAt(100);
-    check('the held number shows with a tilde', context.text === '$(claude)$(dashboard) ~42%',
+    const context = byId(ID.context);
+    check('the held number shows with a tilde', context.text === '🧠 ~42%',
       context.text);
     check('and carries no colour', context.color === undefined,
       context.color && context.color.id);
@@ -1187,7 +1199,7 @@ async function run(name, fn) {
       tip.includes('Context reading paused') && tip.includes('right after /compact') &&
       tip.includes('updates on your next turn'), tip);
     check('the cache countdown is hidden while the clock is reset',
-      barAt(99).visible === false);
+      byId(ID.cache).visible === false);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
@@ -1243,10 +1255,10 @@ async function run(name, fn) {
     fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
 
     ext.activate(ctx());
-    check('nothing is said before a session starts', !barAt(96) || barAt(96).visible === false);
+    check('nothing is said before a session starts', !byId(ID.wrongFolder) || byId(ID.wrongFolder).visible === false);
 
     const event = fireClaudeStart(other);
-    const warn = barAt(96);
+    const warn = byId(ID.wrongFolder);
     check('the wrong-folder item exists', !!warn);
     check('and is visible once Claude starts in a folder this window has not open',
       !!warn && warn.visible === true);
@@ -1264,7 +1276,7 @@ async function run(name, fn) {
     check('and says nothing was changed', tip.includes('Nothing has been changed'), tip);
 
     fireExecutionEnd(event);
-    check('the warning goes when that session ends', !barAt(96) || barAt(96).visible === false);
+    check('the warning goes when that session ends', !byId(ID.wrongFolder) || byId(ID.wrongFolder).visible === false);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
@@ -1287,7 +1299,7 @@ async function run(name, fn) {
     };
     shellStartListeners.forEach((fn) => fn(event));
     check('a wrong folder known only from the execution still warns',
-      !!barAt(96) && barAt(96).visible === true);
+      !!byId(ID.wrongFolder) && byId(ID.wrongFolder).visible === true);
     fireExecutionEnd(event);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
@@ -1310,17 +1322,17 @@ async function run(name, fn) {
     ext.activate(ctx());
 
     fireClaudeStart(ws);
-    check('a start in the workspace folder itself says nothing', !barAt(96) || barAt(96).visible === false);
+    check('a start in the workspace folder itself says nothing', !byId(ID.wrongFolder) || byId(ID.wrongFolder).visible === false);
     fireClaudeStart(sub);
-    check('a start in a subfolder says nothing', !barAt(96) || barAt(96).visible === false);
+    check('a start in a subfolder says nothing', !byId(ID.wrongFolder) || byId(ID.wrongFolder).visible === false);
     fireClaudeStart(second);
     check('a start in the second root of a multi-root workspace says nothing',
-      !barAt(96) || barAt(96).visible === false);
+      !byId(ID.wrongFolder) || byId(ID.wrongFolder).visible === false);
     // A sibling of the workspace folder is not a subfolder of it, whatever the
     // string prefix suggests: /work-notes must not pass as inside /work.
     fireClaudeStart(ws + '-notes');
     check('a sibling whose name merely starts the same way does warn',
-      !!barAt(96) && barAt(96).visible === true);
+      !!byId(ID.wrongFolder) && byId(ID.wrongFolder).visible === true);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
@@ -1346,7 +1358,7 @@ async function run(name, fn) {
 
     ext.activate(ctx());
     fireClaudeStart(parent);
-    const warn = barAt(96);
+    const warn = byId(ID.wrongFolder);
     check('a start in a parent of the workspace warns', !!warn && warn.visible === true);
     const tip = String(warn && warn.tooltip && warn.tooltip.value);
     check('and the hover says it is a wider tree, not a different folder',
@@ -1459,7 +1471,7 @@ async function run(name, fn) {
     }, null, 2));
 
     ext.activate(ctx());
-    const context = barAt(100);
+    const context = byId(ID.context);
     check('the number is shown as Claude Code gave it, not clamped',
       context.text.includes('138%'), context.text);
     check('marked with a warning glyph', context.text.includes('$(warning)'), context.text);
@@ -1648,7 +1660,7 @@ async function run(name, fn) {
 
     ext.activate(ctx());
     check('the reading is shown while the directory is readable',
-      barAt(100).visible === true && barAt(100).text.includes('42%'), barAt(100).text);
+      byId(ID.context).visible === true && byId(ID.context).text.includes('42%'), byId(ID.context).text);
 
     // readdirSync now throws EACCES, while existsSync still says the folder is there.
     fs.chmodSync(fgDir, 0o000);
@@ -1656,7 +1668,7 @@ async function run(name, fn) {
       fireConfigChange();
       await new Promise((r) => setTimeout(r, 1200));
       check('a throwing scan does not leave the old reading on screen',
-        barAt(100).visible === false, `${barAt(100).visible} ${barAt(100).text}`);
+        byId(ID.context).visible === false, `${byId(ID.context).visible} ${byId(ID.context).text}`);
     } finally {
       fs.chmodSync(fgDir, 0o755);
       if (typeof ext.deactivate === 'function') { ext.deactivate(); }
@@ -1754,20 +1766,20 @@ async function run(name, fn) {
     ext.activate(c);
     await new Promise((r) => setTimeout(r, 80));
     check('the reading is shown while we own the slot',
-      barAt(100).visible === true && barAt(100).text.includes('42%'), barAt(100).text);
+      byId(ID.context).visible === true && byId(ID.context).text.includes('42%'), byId(ID.context).text);
 
     answers = ['Restore'];
     await registered['fuel-gauge.restoreStatusLine']();
     await new Promise((r) => setTimeout(r, 1100));
     check('after Restore the old reading is gone from the bar',
-      !barAt(100).text.includes('42%') && barAt(99).visible === false,
-      `${barAt(100).visible} ${barAt(100).text} / cache ${barAt(99).visible}`);
+      !byId(ID.context).text.includes('42%') && byId(ID.cache).visible === false,
+      `${byId(ID.context).visible} ${byId(ID.context).text} / cache ${byId(ID.cache).visible}`);
 
     session('after', 17, Date.now() / 1000 + 1);
     fireConfigChange();
     await new Promise((r) => setTimeout(r, 60));
     check('a session file written after Restore is shown',
-      barAt(100).visible === true && barAt(100).text.includes('17%'), barAt(100).text);
+      byId(ID.context).visible === true && byId(ID.context).text.includes('17%'), byId(ID.context).text);
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
 
     // A reload must not bring the old file back: the moment is kept in globalState.
@@ -1778,7 +1790,7 @@ async function run(name, fn) {
     again.activate(c);
     await new Promise((r) => setTimeout(r, 60));
     check('after a reload the pre-Restore file stays dark',
-      !barAt(100).text.includes('42%'), barAt(100).text);
+      !byId(ID.context).text.includes('42%'), byId(ID.context).text);
     if (typeof again.deactivate === 'function') { again.deactivate(); }
   });
 
@@ -2182,11 +2194,11 @@ async function run(name, fn) {
     ext.activate(ctx());
     await new Promise((r) => setTimeout(r, 60));
 
-    const context = barAt(100), cache = barAt(99), effort = barAt(98);
+    const context = byId(ID.context), cache = byId(ID.cache), effort = byId(ID.effort);
     check('mod file: the context percentage is drawn',
-      context.visible === true && context.text === '$(claude)$(dashboard) 18%', context.text);
+      context.visible === true && context.text === '🧠 18%', context.text);
     check('mod file: the cache countdown is drawn',
-      cache.visible === true && /^5[89]:[0-5]\d$/.test(cache.text), cache.text);
+      cache.visible === true && /^◷ 5[89]:[0-5]\d$/.test(cache.text), cache.text);
     check('mod file: the model and effort are drawn',
       effort.visible === true && effort.text === 'opus·x-high', effort.text);
     const tip = String(context.tooltip && context.tooltip.value);
@@ -2196,6 +2208,158 @@ async function run(name, fn) {
       readSettings().statusLine.command === 'my-own-statusline', JSON.stringify(readSettings().statusLine));
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
+
+  // 40. THE MOD'S LOOK. The bar reads like the mod's minimal line, one item per
+  //     figure so each keeps its own colour: 🧠 34%  ◷ 59:59  5h 12% ↻22:40
+  //     wk 25%  opus·x-high. The two limits replace the numberless alert dot.
+  {
+    const hhmm24 = (sec) => {
+      const d = new Date(sec * 1000);
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+    // Writes one session file and activates; returns the items.
+    const show = async (ext, extra, cfg = {}) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+      Object.assign(configStore, cfg);
+      const nowSec = Date.now() / 1000;
+      const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+      fs.mkdirSync(fgDir, { recursive: true });
+      fs.writeFileSync(path.join(fgDir, 'look.json'), JSON.stringify({
+        cwd: ws, project_dir: ws, used_percentage: 34, remaining_percentage: 66,
+        context_window_size: 200000, model: 'claude-opus-5', session_id: 'look',
+        timestamp: nowSec, detected_ttl: 3600, last_api_call_ts: nowSec - 1,
+        effort_level: 'xhigh', ...extra,
+      }, null, 2));
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      return {
+        context: byId(ID.context), cache: byId(ID.cache), h5: byId(ID.usage5h),
+        wk: byId(ID.usageWeekly), effort: byId(ID.effort), wrong: byId(ID.wrongFolder),
+      };
+    };
+    const end = (ext) => { if (typeof ext.deactivate === 'function') { ext.deactivate(); } };
+
+    await run('mod-look-texts', async (ext) => {
+      const nowSec = Date.now() / 1000;
+      const reset = nowSec + 3 * 3600;
+      const it = await show(ext, {
+        rate_limit_5h_pct: 12.4, rate_limit_5h_reset: reset,
+        rate_limit_7d_pct: 25.2, rate_limit_7d_reset: nowSec + 200000,
+      });
+      check('context carries the brain prefix', it.context.text === '🧠 34%', it.context.text);
+      check('the cache countdown carries the clock prefix',
+        /^◷ 5[89]:[0-5]\d$/.test(it.cache.text), it.cache.text);
+      check('the 5-hour item reads 5h 12% with its reset time in 24-hour form',
+        it.h5.visible === true && it.h5.text === `5h 12% ↻${hhmm24(reset)}`, it.h5.text);
+      check('the weekly item exists with its own id', !!it.wk);
+      check('the weekly item reads wk 25%',
+        !!it.wk && it.wk.visible === true && it.wk.text === 'wk 25%', it.wk && it.wk.text);
+      check('the 5-hour item is named for its figure', it.h5.name === 'Brain Drain: 5-hour limit', it.h5.name);
+      check('the weekly item is named for its figure',
+        !!it.wk && it.wk.name === 'Brain Drain: weekly limit', it.wk && it.wk.name);
+      check('no colour on either limit while it is low',
+        it.h5.color === undefined && !!it.wk && it.wk.color === undefined);
+      check('no item shows the old alert dot',
+        bars.every((b) => !String(b.text).includes('$(circle-filled)')));
+      check('no item shows the old Claude icon prefix',
+        bars.every((b) => !String(b.text).includes('$(claude)')));
+      const h5tip = String(it.h5.tooltip && it.h5.tooltip.value);
+      check('the 5-hour hover carries both limit lines with reset times',
+        /Session limit \(5h\): 12% used · resets /.test(h5tip) &&
+        /Weekly limit \(all models\): 25% used · resets /.test(h5tip), h5tip);
+      const wktip = String(it.wk && it.wk.tooltip && it.wk.tooltip.value);
+      check('the weekly hover carries the same lines', wktip === h5tip, wktip);
+      const ctxTip = String(it.context.tooltip && it.context.tooltip.value);
+      check('the main gauge hover still carries both limits',
+        /Session limit \(5h\): 12% used/.test(ctxTip) && /Weekly limit \(all models\): 25% used/.test(ctxTip), ctxTip);
+      // Order, left to right: context, cache, 5h, weekly, model·effort, wrong folder.
+      const order = [it.context, it.cache, it.h5, it.wk, it.effort, it.wrong];
+      check('the items sit in the mod\'s order',
+        order.every(Boolean) && order.every((b, i) => i === 0 || order[i - 1].priority > b.priority),
+        JSON.stringify(order.map((b) => b && [b.id, b.priority])));
+      check('model and effort keep their text', it.effort.text === 'opus·x-high', it.effort.text);
+      end(ext);
+    });
+
+    await run('mod-look-reset-passed', async (ext) => {
+      const nowSec = Date.now() / 1000;
+      const it = await show(ext, {
+        rate_limit_5h_pct: 40, rate_limit_5h_reset: nowSec - 60,
+        rate_limit_7d_pct: 10, rate_limit_7d_reset: nowSec + 200000,
+      });
+      check('a reset time already past is left out', it.h5.text === '5h 40%', it.h5.text);
+      end(ext);
+    });
+
+    await run('mod-look-no-reset', async (ext) => {
+      const it = await show(ext, { rate_limit_5h_pct: 40, rate_limit_7d_pct: -1 });
+      check('no reset time is shown when none is known', it.h5.text === '5h 40%', it.h5.text);
+      check('the weekly item hides when its figure is absent',
+        !!it.wk && it.wk.visible === false);
+      end(ext);
+    });
+
+    await run('mod-look-expired', async (ext) => {
+      const nowSec = Date.now() / 1000;
+      const it = await show(ext, { last_api_call_ts: nowSec - 4000, rate_limit_5h_pct: -1, rate_limit_7d_pct: -1 });
+      check('an expired cache reads ◷ expired', it.cache.text === '◷ expired', it.cache.text);
+      check('and stays red', it.cache.color && it.cache.color.id === 'charts.red', it.cache.color && it.cache.color.id);
+      check('the 5-hour item hides when its figure is absent', it.h5.visible === false);
+      check('so does the weekly item', !!it.wk && it.wk.visible === false);
+      end(ext);
+    });
+
+    for (const [pct, want] of [[69, undefined], [70, 'charts.yellow'], [89, 'charts.yellow'], [90, 'charts.red']]) {
+      await run(`mod-look-colour-${pct}`, async (ext) => {
+        const it = await show(ext, { rate_limit_5h_pct: pct, rate_limit_7d_pct: pct });
+        const id5 = it.h5.color && it.h5.color.id;
+        const idw = it.wk && it.wk.color && it.wk.color.id;
+        check(`5-hour item at ${pct}% is ${want || 'uncoloured'}`, id5 === want, String(id5));
+        check(`weekly item at ${pct}% is ${want || 'uncoloured'}`, !!it.wk && idw === want, String(idw));
+        check(`at ${pct}% the 5-hour item shows its figure, never a dot`,
+          it.h5.visible === true && it.h5.text === `5h ${pct}%` &&
+          bars.every((b) => !String(b.text).includes('$(circle-filled)')), it.h5.text);
+        end(ext);
+      });
+    }
+
+    await run('mod-look-colours-independent', async (ext) => {
+      const it = await show(ext, { rate_limit_5h_pct: 95, rate_limit_7d_pct: 20 });
+      check('a red 5-hour figure does not colour the weekly one',
+        it.h5.color && it.h5.color.id === 'charts.red' && !!it.wk && it.wk.color === undefined,
+        `${it.h5.color && it.h5.color.id} / ${it.wk && it.wk.color && it.wk.color.id}`);
+      end(ext);
+    });
+
+    await run('mod-look-showusage-off', async (ext) => {
+      const it = await show(ext, { rate_limit_5h_pct: 95, rate_limit_7d_pct: 95 }, { showUsage: false });
+      check('showUsage false hides the 5-hour item', it.h5.visible === false);
+      check('showUsage false hides the weekly item', !!it.wk && it.wk.visible === false);
+      check('the gauge itself still shows', it.context.visible === true);
+      end(ext);
+    });
+
+    await run('mod-look-abandoned', async (ext) => {
+      const nowSec = Date.now() / 1000;
+      const it = await show(ext, { timestamp: nowSec - 7200, rate_limit_5h_pct: 95, rate_limit_7d_pct: 95 });
+      check('an abandoned session hides the 5-hour item', it.h5.visible === false);
+      check('and the weekly item', !!it.wk && it.wk.visible === false);
+      end(ext);
+    });
+
+    await run('mod-look-no-session', async (ext) => {
+      fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      const wk = byId(ID.usageWeekly);
+      check('without a session the weekly item exists but is hidden', !!wk && wk.visible === false);
+      check('and the 5-hour item is hidden', byId(ID.usage5h).visible === false);
+      end(ext);
+    });
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
