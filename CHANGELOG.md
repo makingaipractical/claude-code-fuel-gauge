@@ -2,7 +2,7 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
-## v0.9.3 — unreleased (dated on the day it ships)
+## v0.9.3 — 2026-10-15
 
 - The gauge no longer freezes on its last reading when Brain Drain cannot read its session folder. It used to hide for a second and then draw the old number again, so a gauge that had stopped updating looked healthy.
 - When Claude Code sends no percentage of its own, the fallback no longer counts output tokens. It now adds up input, cache creation and cache reads, as Claude Code's own figure does, so it no longer marks a reading unreliable when the input fits in the window. The hover on an unreliable reading names the check that actually fired.
