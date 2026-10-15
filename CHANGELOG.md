@@ -2,6 +2,14 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
+## v0.9.4 — unreleased (dated on the day it ships)
+
+- Show Diagnostics has a new line, "Brain Drain mod". It names the newest session file the mod wrote in the last 36 hours and its age, or says there is none.
+- Show Diagnostics now says what the mod means for the status line: that Brain Drain left it alone and Connect Status Line takes it, or, when the bridge holds it and the mod is writing, that Restore Previous Status Line gives your own back.
+- Show Diagnostics now reads managed settings on Linux and WSL (`/etc/claude-code/`), and on every platform reads the `.json` files in `managed-settings.d/`. A policy file there that switches hooks off is now named.
+- A bridge you edited by hand is no longer replaced without a copy when `context-bridge.sh.fuel-gauge.orig` is already there. The first copy stays as it is, and a later, different edit is copied to `context-bridge.sh.fuel-gauge.orig.latest`, which holds the most recent one.
+- The package is smaller: it leaves out a screenshot the README does not show.
+
 ## v0.9.3 — 2026-10-15
 
 - The gauge no longer freezes on its last reading when Brain Drain cannot read its session folder. It used to hide for a second and then draw the old number again, so a gauge that had stopped updating looked healthy.
