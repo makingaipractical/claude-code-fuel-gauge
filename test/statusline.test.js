@@ -102,6 +102,24 @@ Module._load = function (request, ...args) {
   return origLoad.call(this, request, ...args);
 };
 
+// Claude Code's managed-settings.json sits at a fixed system path, outside
+// HOME, so the sandbox cannot reach it by itself (#4946). Reads of that path
+// are sent to <sandbox>/managed/managed-settings.json instead, so a real
+// managed file on the test machine cannot change a result. The extension
+// takes `fs` with a plain require, so it sees this same function.
+const MANAGED_PATHS = new Set([
+  path.join('/Library/Application Support/ClaudeCode', 'managed-settings.json'),
+  path.join('C:\\Program Files\\ClaudeCode', 'managed-settings.json'),
+]);
+const managedSettingsPath = () => path.join(TMPROOT, 'managed', 'managed-settings.json');
+const origReadFileSync = fs.readFileSync;
+fs.readFileSync = function (p, ...args) {
+  if (typeof p === 'string' && MANAGED_PATHS.has(p)) {
+    return origReadFileSync.call(this, managedSettingsPath(), ...args);
+  }
+  return origReadFileSync.call(this, p, ...args);
+};
+
 function freshSandbox(name) {
   TMPROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'fg-' + name + '-'));
   process.env.HOME = TMPROOT;
@@ -1645,6 +1663,35 @@ async function run(name, fn) {
       !barAt(100).text.includes('42%'), barAt(100).text);
     if (typeof again.deactivate === 'function') { again.deactivate(); }
   });
+
+  // 33b. allowManagedHooksOnly counts only in managed settings (#4946). The
+  //      managed file is read through the redirect above, never the real one.
+  //      Linux has no managed path in the extension, so it is skipped there.
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    await run('diagnostics-managed-hooks-only', async (ext) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      fs.writeFileSync(settingsPath, JSON.stringify({ allowManagedHooksOnly: true }, null, 2) + '\n');
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+
+      await registered['fuel-gauge.showBridgeStatus']();
+      let report = outputLines.join('\n');
+      check('allowManagedHooksOnly in the user settings is not named',
+        report.includes('not switched off') && !report.includes('allowManagedHooksOnly'), report);
+
+      fs.mkdirSync(path.dirname(managedSettingsPath()), { recursive: true });
+      fs.writeFileSync(managedSettingsPath(), JSON.stringify({ allowManagedHooksOnly: true }));
+      outputLines.length = 0;
+      await registered['fuel-gauge.showBridgeStatus']();
+      report = outputLines.join('\n');
+      check('allowManagedHooksOnly in managed settings is named',
+        report.includes('SWITCHED OFF') && report.includes('managed-settings.json sets allowManagedHooksOnly'),
+        report);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+  }
 
   // 34. ONE PYTHON START PER BRIDGE RUN (#4952, item 3). The bridge started
   //     python3 a first time only to read session_id, about 26 ms per update.
