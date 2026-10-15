@@ -1509,6 +1509,60 @@ async function run(name, fn) {
       over.window_implausible === true, String(over.window_implausible));
   });
 
+  // 30b. THE TWO EDGES LEFT ON 11 OCTOBER (#3070). (1) Claude Code's own
+  //      used_percentage counts input, cache creation and cache reads, never
+  //      output (statusline docs, quoted in 260824_Verlauf, Research_Platform_
+  //      Assumptions_PreRelease); the fallback added output too, so it could
+  //      call a window "cannot be true" with the input inside it. (2) With an
+  //      old systemOverhead and only the exceeds_200k_tokens cross-check firing,
+  //      the hover guessed the reason from the subtracted percentage and named
+  //      a contradiction that does not hold.
+  await run('implausible-window-edges', async (ext) => {
+    const ws = path.join(TMPROOT, 'work');
+    fs.mkdirSync(ws, { recursive: true });
+    global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+
+    const feed = (id, extra, usage) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify({
+          session_id: id, cwd: ws, workspace: { project_dir: ws }, ...extra,
+          context_window: {
+            context_window_size: 200000, total_input_tokens: 190000,
+            current_usage: { input_tokens: 0, cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 190000, ...usage },
+          },
+        }),
+        env: { ...process.env, HOME: TMPROOT },
+      });
+      return JSON.parse(fs.readFileSync(path.join(fgDir, id + '.json'), 'utf-8'));
+    };
+
+    const withOutput = feed('output-edge', {}, { output_tokens: 20000 });
+    check('the fallback leaves output tokens out, as Claude Code does',
+      Math.round(withOutput.used_percentage) === 95, String(withOutput.used_percentage));
+    check('so input inside the window is not flagged',
+      withOutput.window_implausible === false, String(withOutput.window_implausible));
+    fs.unlinkSync(path.join(fgDir, 'output-edge.json'));
+
+    fs.writeFileSync(path.join(fgDir, 'config.json'),
+      JSON.stringify({ systemOverhead: 20000 }, null, 2));
+    const xcheck = feed('overhead-xcheck', { exceeds_200k_tokens: true }, { output_tokens: 0 });
+    check('the cross-check still flags the 200,000 window',
+      xcheck.window_implausible === true, String(xcheck.window_implausible));
+
+    ext.activate(ctx());
+    const context = bars.filter((b) => b.priority === 100).pop();
+    const tip = String(context && context.tooltip && context.tooltip.value);
+    check('the hover names the cross-check, not our subtracted percentage',
+      tip.includes('past 200,000') && !tip.includes('puts this session at'), tip);
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+  });
+
   // 31. A SCAN THAT THROWS MUST NOT FREEZE THE LAST READING (audit finding 8,
   //     #4951). updateStatus() hid the items when the directory scan threw, but
   //     left the old reading cached, and the one-second timer drew it again a

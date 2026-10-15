@@ -17,6 +17,9 @@ interface ContextStatus {
    *  percentage above 100. The number is shown as it came, uncoloured — see the
    *  bridge's plausibility check. */
   window_implausible?: boolean;
+  /** Which check raised window_implausible: 'tokens', 'percent' or
+   *  'exceeds_200k'. Absent in files from an older bridge or from the mod. */
+  window_implausible_by?: string;
   total_input_tokens: number;
   total_output_tokens: number;
   context_window_size: number;
@@ -96,23 +99,25 @@ inp = cu.get('input_tokens', 0) or 0
 out = cu.get('output_tokens', 0) or 0
 cache_create = cu.get('cache_creation_input_tokens', 0) or 0
 cache_read = cu.get('cache_read_input_tokens', 0) or 0
-total = inp + out + cache_create + cache_read
+# Claude Code's used_percentage counts input, cache creation and cache reads,
+# never output (statusline docs); the fallback uses the same sum (#3070).
+total_ctx = inp + cache_create + cache_read
 
 used_raw = cw.get('used_percentage')
 if isinstance(used_raw, (int, float)) and not isinstance(used_raw, bool):
     used_pct = float(used_raw)
     remaining_pct = max(0.0, 100.0 - used_pct)
     check_pct = used_pct
-elif total > 0 and window_size > 0:
+elif total_ctx > 0 and window_size > 0:
     # Fallback only. systemOverhead, if the user set one, is subtracted here.
     # Not clamped to 100: a figure above 100 is how the plausibility check
     # below (#3070) learns the window is wrong, and it is shown as computed.
     effective_window = max(1, window_size - overhead)
-    used_pct = total * 100.0 / effective_window
+    used_pct = total_ctx * 100.0 / effective_window
     remaining_pct = max(0.0, 100.0 - used_pct)
     # The plausibility check tests this figure instead: the same tokens over
     # the window Claude Code reported, with no overhead taken off it.
-    check_pct = total * 100.0 / window_size
+    check_pct = total_ctx * 100.0 / window_size
 else:
     used_pct = 0
     remaining_pct = 100
@@ -129,6 +134,7 @@ prev_detected_ttl = 0
 prev_last_api_call_ts = 0
 prev_used_pct = 0
 prev_window_implausible = False
+prev_window_implausible_by = None
 prev_writer = None
 prev_written_at = 0
 if bd_dir and session_id:
@@ -141,6 +147,7 @@ if bd_dir and session_id:
             prev_last_api_call_ts = prev.get('last_api_call_ts', 0) or 0
             prev_used_pct = prev.get('used_percentage', 0) or 0
             prev_window_implausible = prev.get('window_implausible') is True
+            prev_window_implausible_by = prev.get('window_implausible_by')
             prev_writer = prev.get('writer')
             prev_written_at = prev.get('timestamp', 0) or 0
     except Exception:
@@ -284,9 +291,13 @@ if (inp + out + cache_create + cache_read) == 0 and total_in_now == 0 and prev_u
 # clamps — Math.min(used/window*100, 100) in Claude Code 2.1.269 — which turns a
 # broken reading into a plausible-looking full tank. We flag instead and never
 # clamp: a confident wrong number is worse than a visibly unreliable one.
+# window_implausible_by names the check that fired, so the hover names that
+# contradiction rather than guessing it from a percentage we may have shifted.
 window_implausible = False
+window_implausible_by = None
 if window_size > 0 and total_in_now > window_size:
     window_implausible = True
+    window_implausible_by = 'tokens'
 # check_pct, not used_pct: in the fallback used_pct has the deprecated
 # systemOverhead taken off the window, so it can pass 100 while the window
 # Claude Code reported is fine, and the hover would then call our own
@@ -294,8 +305,10 @@ if window_size > 0 and total_in_now > window_size:
 # figures to test, so it keeps the verdict it was given when it was measured.
 if context_unknown:
     window_implausible = prev_window_implausible
+    window_implausible_by = prev_window_implausible_by if prev_window_implausible else None
 elif check_pct > 100:
     window_implausible = True
+    window_implausible_by = window_implausible_by or 'percent'
 # Free cross-check the payload already carries. Valid only when the flag is
 # actually present and true; when Claude Code omits it, it says nothing either
 # way, and a window genuinely larger than 200k is normal (1M is GA).
@@ -304,6 +317,7 @@ if exceeds_200k is None:
     exceeds_200k = cw.get('exceeds_200k_tokens')
 if exceeds_200k is True and 0 < window_size <= 200000:
     window_implausible = True
+    window_implausible_by = window_implausible_by or 'exceeds_200k'
 
 # Nothing about reading someone else's file may stop the gauge. Whatever shape
 # a future transcript takes, the worst it can do here is leave the TTL unknown,
@@ -412,6 +426,7 @@ output = {
     'remaining_percentage': remaining_pct,
     'context_unknown': context_unknown,
     'window_implausible': window_implausible,
+    'window_implausible_by': window_implausible_by,
     'total_input_tokens': total_in_now,
     'total_output_tokens': cw.get('total_output_tokens', 0),
     'context_window_size': window_size,
@@ -1722,11 +1737,18 @@ const COLOR_GREEN = new vscode.ThemeColor('charts.green');
 function implausibleReason(data: ContextStatus): string {
   const win = data.context_window_size ?? 0;
   const tokens = data.total_input_tokens ?? 0;
-  if (win > 0 && tokens > win) {
+  // The bridge says which check fired. Guessing from used_percentage is wrong
+  // when an old systemOverhead raised it and only the cross-check held.
+  const by = data.window_implausible_by;
+  if (by === 'exceeds_200k') {
+    return `Claude Code says this session is past 200,000 tokens but reports a context ` +
+      `window of ${win.toLocaleString()}, which cannot both be true`;
+  }
+  if (by !== 'percent' && win > 0 && tokens > win) {
     return `Claude Code reports a context window of ${win.toLocaleString()} tokens ` +
       `holding ${tokens.toLocaleString()}, which cannot be true`;
   }
-  if ((data.used_percentage ?? 0) > 100) {
+  if (by === 'percent' || (data.used_percentage ?? 0) > 100) {
     return `The reading puts this session at ${Math.round(data.used_percentage)}% of a ` +
       `${win.toLocaleString()}-token window, which cannot be true`;
   }
