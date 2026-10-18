@@ -1687,10 +1687,10 @@ function readSessionFile(sessionId: string): ContextStatus {
 /** Every session file the gauge may draw, one per session. The bridge's file
  *  comes first: whoever holds the status line writes, and while that is our
  *  bridge the mod writes its copy to fuel-gauge-mod/ instead (#4956). The mod's
- *  copy is drawn only for a session the bridge has no file for. That happens:
- *  on 17 and 18 October more than half of Julian's interactive sessions on
- *  Claude Code 2.1.302 got a file from the mod and none from the bridge, so the
- *  gauge stayed hidden for them (#5396). */
+ *  copy is drawn only for a session the bridge has no file for, one the status
+ *  line does not run for while the mod's hooks do (Anthropic's chat panel runs
+ *  no status line, #4987). A bridge file missing after its session ended is no
+ *  sign of that: clearTracking deletes it (#5396). */
 function readSessionCandidates(): ContextStatus[] {
   return readSessionCandidatesWithFolder().map((c) => c.data);
 }
