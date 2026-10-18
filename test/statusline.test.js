@@ -2209,6 +2209,72 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
+  // 39. THE GAUGE READS THE MOD'S COPY WHEN THE BRIDGE WROTE NOTHING (#5396).
+  //     While our bridge holds the status line, the mod writes to
+  //     ~/.claude/fuel-gauge-mod/. On 17 and 18 October most of Julian's
+  //     interactive sessions (Claude Code 2.1.302) got a file there and none from
+  //     the bridge, and the gauge stayed hidden. It also matched only the first
+  //     root of a multi-root workspace.
+  {
+    const writeSession = (folder, id, ws, pct, ageSec = 0, extra = {}) => {
+      const dir = path.join(TMPROOT, '.claude', folder);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify({
+        cwd: ws, project_dir: ws, used_percentage: pct, remaining_percentage: 100 - pct,
+        context_window_size: 1000000, model: 'claude-opus-5-5', session_id: id,
+        timestamp: Date.now() / 1000 - ageSec, ...extra,
+      }, null, 2));
+    };
+    const wired = () => fs.writeFileSync(settingsPath,
+      JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2) + '\n');
+
+    await run('mod-folder-only-session-is-drawn', async (ext) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      writeSession('fuel-gauge-mod', 'modonly', ws, 22, 0, { writer: 'mod' });
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      const context = byId(ID.context);
+      check('a session only the mod wrote (fuel-gauge-mod) is drawn',
+        context.visible === true && context.text === '🧠 22%', `${context.visible} ${context.text}`);
+      check('the bridge stays the status line',
+        readSettings().statusLine.command === bridgePath(), JSON.stringify(readSettings().statusLine));
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
+    await run('bridge-file-wins-over-mod-copy', async (ext) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      writeSession('fuel-gauge', 'both', ws, 41, 5);
+      writeSession('fuel-gauge-mod', 'both', ws, 40, 0, { writer: 'mod' });
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      const context = byId(ID.context);
+      check('for one session written by both, the bridge\'s file is drawn',
+        context.text === '🧠 41%', context.text);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
+    await run('second-root-session-is-drawn', async (ext) => {
+      const a = path.join(TMPROOT, 'rootA'), b = path.join(TMPROOT, 'rootB');
+      fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [
+        { uri: { fsPath: a, path: a } }, { uri: { fsPath: b, path: b } }];
+      wired();
+      writeSession('fuel-gauge', 'inb', path.join(b, 'sub'), 57);
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      const context = byId(ID.context);
+      check('a session under the second root of a multi-root workspace is drawn',
+        context.visible === true && context.text === '🧠 57%', `${context.visible} ${context.text}`);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+  }
+
   // 40. THE MOD'S LOOK. The bar reads like the mod's minimal line, one item per
   //     figure so each keeps its own colour: 🧠 34%  ◷ 59:59  5h 12% ↻22:40
   //     wk 25%  opus·x-high. The two limits replace the numberless alert dot.

@@ -528,6 +528,10 @@ function shortModelName(modelId: string | undefined): string {
   return '';
 }
 
+/** The folders under ~/.claude the gauge reads, in order of precedence: the
+ *  bridge's, then the mod's while the bridge holds the status line (#5396). */
+const SESSION_FOLDERS = ['fuel-gauge', 'fuel-gauge-mod'];
+
 function listSessionFiles(dir: string): string[] {
   return fs.readdirSync(dir).filter(f => f.endsWith('.json') && !META_FILES.has(f));
 }
@@ -1501,19 +1505,23 @@ function showBridgeStatus() {
 
     // With the status bar items hidden when nothing matches, this is the only
     // place that answers "why is my gauge not there?".
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    const roots = workspaceFolderPaths();
+    if (roots.length === 0) {
       add('This workspace', 'no folder is open, so no session can be matched to it');
     } else {
-      add('This workspace', workspaceRoot);
+      add('This workspace', roots.join(', '));
+      // The same choice the gauge makes: the newest matching session, the
+      // bridge's file before the mod's copy of the same session.
       let matched: string | undefined;
-      for (const { f } of files) {
-        try {
-          const d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as ContextStatus;
-          if (matchesWorkspace(d, workspaceRoot)) { matched = f; break; }
-        } catch {
-          // Unreadable or half-written — not this report's problem.
-        }
+      let newest: ContextStatus | undefined;
+      for (const d of readSessionCandidates()) {
+        if (matchesWorkspace(d, roots) && (!newest || d.timestamp > newest.timestamp)) { newest = d; }
+      }
+      if (newest) {
+        const fromBridge = fs.existsSync(path.join(dir, `${newest.session_id}.json`));
+        matched = fromBridge
+          ? `${newest.session_id}.json`
+          : `fuel-gauge-mod/${newest.session_id}.json — written by the mod; the status line did not run for this session, so the bridge has no file for it`;
       }
       add('Session for this workspace', matched ?? (projectStatusLines.length > 0
         ? `NONE — the gauge is hidden in this window. ${projectStatusLines.join(' and ')} ` +
@@ -1616,49 +1624,81 @@ function startPolling() {
   pollTimer = setInterval(updateStatus, intervalSeconds * 1000);
 }
 
-function matchesWorkspace(data: ContextStatus, workspaceRoot: string): boolean {
+/** True when the session was started in one of this window's folders or below
+ *  one. Every root of a multi-root workspace counts: up to 0.10.0 only the first
+ *  was matched, so a session in a second root kept the gauge hidden while the
+ *  wrong-folder check called it the right place (#5396). */
+function matchesWorkspace(data: ContextStatus, roots: string[]): boolean {
   // Prefer project_dir (stable launch directory) over cwd (can change mid-session)
   const dir = data.project_dir || data.cwd;
-  return dir === workspaceRoot || dir.startsWith(workspaceRoot + '/');
+  if (typeof dir !== 'string') { return false; }
+  return roots.some((root) => dir === root || dir.startsWith(root + '/'));
+}
+
+/** Reads one session's file: the bridge's in ~/.claude/fuel-gauge/ first, else
+ *  the mod's in ~/.claude/fuel-gauge-mod/. Throws when neither is readable. */
+function readSessionFile(sessionId: string): ContextStatus {
+  let firstError: unknown;
+  for (const folder of SESSION_FOLDERS) {
+    try {
+      const raw = fs.readFileSync(path.join(os.homedir(), '.claude', folder, `${sessionId}.json`), 'utf-8');
+      return JSON.parse(raw) as ContextStatus;
+    } catch (err) {
+      if (firstError === undefined) { firstError = err; }
+    }
+  }
+  throw firstError;
+}
+
+/** Every session file the gauge may draw, one per session. The bridge's file
+ *  comes first: whoever holds the status line writes, and while that is our
+ *  bridge the mod writes its copy to fuel-gauge-mod/ instead (#4956). The mod's
+ *  copy is drawn only for a session the bridge has no file for. That happens:
+ *  on 17 and 18 October more than half of Julian's interactive sessions on
+ *  Claude Code 2.1.302 got a file from the mod and none from the bridge, so the
+ *  gauge stayed hidden for them (#5396). */
+function readSessionCandidates(): ContextStatus[] {
+  const seen = new Set<string>();
+  const out: ContextStatus[] = [];
+  for (const folder of SESSION_FOLDERS) {
+    const dir = path.join(os.homedir(), '.claude', folder);
+    let files: string[];
+    try { files = listSessionFiles(dir); } catch { continue; } // no directory yet
+    for (const file of files) {
+      const id = file.slice(0, -'.json'.length);
+      if (seen.has(id)) { continue; }
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8')) as ContextStatus;
+        if (!data || typeof data !== 'object') { continue; }
+        seen.add(id);
+        out.push(data);
+      } catch {
+        // Half-written: it heals on the next write. The other folder's copy of
+        // the same session may still be read below.
+      }
+    }
+  }
+  return out;
 }
 
 function findMatchingSession(): ContextStatus | undefined {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
-    return undefined;
-  }
-
-  const workspaceRoot = workspaceFolders[0].uri.fsPath;
-  const fuelGaugeDir = path.join(os.homedir(), '.claude', 'fuel-gauge');
-
-  if (!fs.existsSync(fuelGaugeDir)) {
+  const roots = workspaceFolderPaths();
+  if (roots.length === 0) {
     return undefined;
   }
 
   // Tier 1: Locked onto a specific session — read directly, no scanning
   if (trackedSessionId) {
     try {
-      const filePath = path.join(fuelGaugeDir, `${trackedSessionId}.json`);
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const data = JSON.parse(raw) as ContextStatus;
+      const data = readSessionFile(trackedSessionId);
 
       // If the file hasn't updated since last poll, check whether /clear
       // (or similar) created a new session for this workspace
       if (lastTrackedTimestamp !== undefined && data.timestamp === lastTrackedTimestamp) {
-        const files = listSessionFiles(fuelGaugeDir);
-        let hasNewer = false;
-        for (const file of files) {
-          try {
-            const otherRaw = fs.readFileSync(path.join(fuelGaugeDir, file), 'utf-8');
-            const other: ContextStatus = JSON.parse(otherRaw);
-            if (other.session_id !== trackedSessionId &&
-                matchesWorkspace(other, workspaceRoot) &&
-                other.timestamp > data.timestamp) {
-              hasNewer = true;
-              break;
-            }
-          } catch { /* skip */ }
-        }
+        const hasNewer = readSessionCandidates().some((other) =>
+          other.session_id !== trackedSessionId &&
+          matchesWorkspace(other, roots) &&
+          other.timestamp > data.timestamp);
         if (hasNewer) {
           // Release session lock but keep claudeStartTime (terminal still alive)
           trackedSessionId = undefined;
@@ -1678,24 +1718,18 @@ function findMatchingSession(): ContextStatus | undefined {
     }
   }
 
+  const candidates = readSessionCandidates();
+
   // Tier 2: Claude started, waiting to discover session file
   if (claudeStartTime) {
     const startTimeSec = (claudeStartTime / 1000) - 30; // 30s grace for clock skew
-    const files = listSessionFiles(fuelGaugeDir);
     let newestMatch: ContextStatus | undefined;
 
-    for (const file of files) {
-      try {
-        const raw = fs.readFileSync(path.join(fuelGaugeDir, file), 'utf-8');
-        const data: ContextStatus = JSON.parse(raw);
-
-        if (matchesWorkspace(data, workspaceRoot) && data.timestamp >= startTimeSec) {
-          if (!newestMatch || data.timestamp > newestMatch.timestamp) {
-            newestMatch = data;
-          }
+    for (const data of candidates) {
+      if (matchesWorkspace(data, roots) && data.timestamp >= startTimeSec) {
+        if (!newestMatch || data.timestamp > newestMatch.timestamp) {
+          newestMatch = data;
         }
-      } catch {
-        // Skip unreadable files
       }
     }
 
@@ -1711,20 +1745,11 @@ function findMatchingSession(): ContextStatus | undefined {
 
   // Tier 3: Fallback — scan all, match workspace, pick newest
   let bestMatch: ContextStatus | undefined;
-  const files = listSessionFiles(fuelGaugeDir);
-
-  for (const file of files) {
-    try {
-      const raw = fs.readFileSync(path.join(fuelGaugeDir, file), 'utf-8');
-      const data: ContextStatus = JSON.parse(raw);
-
-      if (matchesWorkspace(data, workspaceRoot)) {
-        if (!bestMatch || data.timestamp > bestMatch.timestamp) {
-          bestMatch = data;
-        }
+  for (const data of candidates) {
+    if (matchesWorkspace(data, roots)) {
+      if (!bestMatch || data.timestamp > bestMatch.timestamp) {
+        bestMatch = data;
       }
-    } catch {
-      // Skip unreadable files
     }
   }
 
