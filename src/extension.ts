@@ -592,8 +592,16 @@ function releaseTracking() {
 
 // The session genuinely ended (terminal closed, execution finished). Delete the
 // file too, so Tier 3 does not pick up stale data.
+/** Sessions this window saw end, with the time they ended (epoch seconds).
+ *  clearTracking deletes the bridge's file, but the mod's copy in
+ *  fuel-gauge-mod/ is not ours to delete, so without this the gauge would go
+ *  back to drawing the ended session from that copy. A write after the end
+ *  (the same session resumed) shows again. */
+const endedSessions = new Map<string, number>();
+
 function clearTracking() {
   if (trackedSessionId) {
+    endedSessions.set(trackedSessionId, Date.now() / 1000);
     const filePath = path.join(os.homedir(), '.claude', 'fuel-gauge', `${trackedSessionId}.json`);
     try { fs.unlinkSync(filePath); } catch { /* already gone */ }
   }
@@ -1671,6 +1679,8 @@ function readSessionCandidates(): ContextStatus[] {
         const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8')) as ContextStatus;
         if (!data || typeof data !== 'object') { continue; }
         seen.add(id);
+        const endedAt = endedSessions.get(id);
+        if (endedAt !== undefined && !(data.timestamp > endedAt)) { continue; }
         out.push(data);
       } catch {
         // Half-written: it heals on the next write. The other folder's copy of

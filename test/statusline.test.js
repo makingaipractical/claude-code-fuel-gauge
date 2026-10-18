@@ -2259,6 +2259,31 @@ async function run(name, fn) {
       if (typeof ext.deactivate === 'function') { ext.deactivate(); }
     });
 
+    await run('ended-session-mod-copy-stays-hidden', async (ext) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      const event = fireClaudeStart(ws);
+      writeSession('fuel-gauge-mod', 'ends', ws, 33, 0, { writer: 'mod' });
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      check('the running mod-only session is drawn', byId(ID.context).text === '🧠 33%', byId(ID.context).text);
+      fireExecutionEnd(event);
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      check('after its claude ends, the mod\'s leftover copy does not bring the gauge back',
+        byId(ID.context).visible === false, `${byId(ID.context).visible} ${byId(ID.context).text}`);
+      writeSession('fuel-gauge-mod', 'ends', ws, 35, -5, { writer: 'mod' });
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      check('a write after the end (the session resumed) shows again',
+        byId(ID.context).visible === true && byId(ID.context).text === '🧠 35%', `${byId(ID.context).visible} ${byId(ID.context).text}`);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
     await run('second-root-session-is-drawn', async (ext) => {
       const a = path.join(TMPROOT, 'rootA'), b = path.join(TMPROOT, 'rootB');
       fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });
