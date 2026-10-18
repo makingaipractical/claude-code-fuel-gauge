@@ -2284,6 +2284,42 @@ async function run(name, fn) {
       if (typeof ext.deactivate === 'function') { ext.deactivate(); }
     });
 
+    await run('ended-session-stays-ended-after-reload', async (ext) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      const c = ctx();
+      ext.activate(c);
+      await new Promise((r) => setTimeout(r, 60));
+      const event = fireClaudeStart(ws);
+      writeSession('fuel-gauge-mod', 'reloaded', ws, 44, 0, { writer: 'mod' });
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      fireExecutionEnd(event);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+      ext.activate(c); // the same global state, as after a window reload
+      await new Promise((r) => setTimeout(r, 60));
+      // The reload made new items; the newest one with the id is this window's.
+      const ctxItem = bars.filter((b) => b.id === ID.context).pop();
+      check('after a reload, an ended session\'s mod copy still does not show',
+        ctxItem.visible === false, `${ctxItem.visible} ${ctxItem.text}`);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
+    await run('old-mod-copy-is-not-drawn', async (ext) => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      writeSession('fuel-gauge-mod', 'oldmod', ws, 12, 37 * 3600, { writer: 'mod' });
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      check('a mod copy older than 36 hours does not show the gauge',
+        byId(ID.context).visible === false, `${byId(ID.context).visible} ${byId(ID.context).text}`);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
     await run('second-root-session-is-drawn', async (ext) => {
       const a = path.join(TMPROOT, 'rootA'), b = path.join(TMPROOT, 'rootB');
       fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });

@@ -598,10 +598,34 @@ function releaseTracking() {
  *  back to drawing the ended session from that copy. A write after the end
  *  (the same session resumed) shows again. */
 const endedSessions = new Map<string, number>();
+const ENDED_SESSIONS_KEY = 'fuel-gauge.endedSessions';
+// Kept in global state so a reload of the window still knows; entries older
+// than the 36 hours a mod copy is read for are dropped.
+let endedSessionsStore: vscode.Memento | undefined;
+const ENDED_KEEP_S = 36 * 60 * 60;
+
+function loadEndedSessions(store: vscode.Memento) {
+  endedSessionsStore = store;
+  endedSessions.clear();
+  const saved = store.get<Record<string, number>>(ENDED_SESSIONS_KEY, {}) || {};
+  const cutoff = Date.now() / 1000 - ENDED_KEEP_S;
+  for (const [id, at] of Object.entries(saved)) {
+    if (typeof at === 'number' && at > cutoff) { endedSessions.set(id, at); }
+  }
+}
+
+function markEnded(sessionId: string) {
+  const now = Date.now() / 1000;
+  endedSessions.set(sessionId, now);
+  for (const [id, at] of endedSessions) {
+    if (at < now - ENDED_KEEP_S) { endedSessions.delete(id); }
+  }
+  void endedSessionsStore?.update(ENDED_SESSIONS_KEY, Object.fromEntries(endedSessions));
+}
 
 function clearTracking() {
   if (trackedSessionId) {
-    endedSessions.set(trackedSessionId, Date.now() / 1000);
+    markEnded(trackedSessionId);
     const filePath = path.join(os.homedir(), '.claude', 'fuel-gauge', `${trackedSessionId}.json`);
     try { fs.unlinkSync(filePath); } catch { /* already gone */ }
   }
@@ -793,6 +817,7 @@ function writeBridgeConfig() {
 
 export function activate(context: vscode.ExtensionContext) {
   restoredAt = context.globalState.get<number>(RESTORED_AT_KEY, 0) || 0;
+  loadEndedSessions(context.globalState);
   const bridge = installBridgeScript();
   if (bridge === 'absent') {
     void vscode.window.showWarningMessage(
@@ -1510,38 +1535,36 @@ function showBridgeStatus() {
       add('Newest session file', 'none — no session has written yet');
     }
     add('Session files', String(files.length));
-
-    // With the status bar items hidden when nothing matches, this is the only
-    // place that answers "why is my gauge not there?".
-    const roots = workspaceFolderPaths();
-    if (roots.length === 0) {
-      add('This workspace', 'no folder is open, so no session can be matched to it');
-    } else {
-      add('This workspace', roots.join(', '));
-      // The same choice the gauge makes: the newest matching session, the
-      // bridge's file before the mod's copy of the same session.
-      let matched: string | undefined;
-      let newest: ContextStatus | undefined;
-      for (const d of readSessionCandidates()) {
-        if (matchesWorkspace(d, roots) && (!newest || d.timestamp > newest.timestamp)) { newest = d; }
-      }
-      if (newest) {
-        const fromBridge = fs.existsSync(path.join(dir, `${newest.session_id}.json`));
-        matched = fromBridge
-          ? `${newest.session_id}.json`
-          : `fuel-gauge-mod/${newest.session_id}.json — written by the mod; the status line did not run for this session, so the bridge has no file for it`;
-      }
-      add('Session for this workspace', matched ?? (projectStatusLines.length > 0
-        ? `NONE — the gauge is hidden in this window. ${projectStatusLines.join(' and ')} ` +
-          'sets a status line of its own, and Claude Code runs that one instead of Brain Drain\'s ' +
-          'for sessions started in this folder. Remove statusLine from that file to bring the ' +
-          'gauge back; Brain Drain does not change project settings.'
-        : 'NONE — the gauge is hidden in this window. ' +
-          'Claude Code sessions are matched by the folder they were started in, so a session ' +
-          'started in a different folder will not appear here.'));
-    }
   } catch {
     add('Session directory', 'MISSING');
+  }
+  // With the status bar items hidden when nothing matches, this is the only
+  // place that answers "why is my gauge not there?".
+  const roots = workspaceFolderPaths();
+  if (roots.length === 0) {
+    add('This workspace', 'no folder is open, so no session can be matched to it');
+  } else {
+    add('This workspace', roots.join(', '));
+    // The same choice the gauge makes: the newest matching session, the
+    // bridge's file before the mod's copy of the same session.
+    let matched: string | undefined;
+    let newest: { data: ContextStatus; folder: string } | undefined;
+    for (const c of readSessionCandidatesWithFolder()) {
+      if (matchesWorkspace(c.data, roots) && (!newest || c.data.timestamp > newest.data.timestamp)) { newest = c; }
+    }
+    if (newest) {
+      matched = newest.folder === SESSION_FOLDERS[0]
+        ? `${newest.data.session_id}.json`
+        : `${newest.folder}/${newest.data.session_id}.json — written by the mod; the status line did not run for this session, so the bridge has no file for it`;
+    }
+    add('Session for this workspace', matched ?? (projectStatusLines.length > 0
+      ? `NONE — the gauge is hidden in this window. ${projectStatusLines.join(' and ')} ` +
+        'sets a status line of its own, and Claude Code runs that one instead of Brain Drain\'s ' +
+        'for sessions started in this folder. Remove statusLine from that file to bring the ' +
+        'gauge back; Brain Drain does not change project settings.'
+      : 'NONE — the gauge is hidden in this window. ' +
+        'Claude Code sessions are matched by the folder they were started in, so a session ' +
+        'started in a different folder will not appear here.'));
   }
 
   try {
@@ -1653,6 +1676,9 @@ function readSessionFile(sessionId: string): ContextStatus {
       return JSON.parse(raw) as ContextStatus;
     } catch (err) {
       if (firstError === undefined) { firstError = err; }
+      // Only a missing file sends the read on to the mod's copy. A bridge file
+      // caught half-written is the bridge's, and the next poll reads it.
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') { break; }
     }
   }
   throw firstError;
@@ -1666,8 +1692,16 @@ function readSessionFile(sessionId: string): ContextStatus {
  *  Claude Code 2.1.302 got a file from the mod and none from the bridge, so the
  *  gauge stayed hidden for them (#5396). */
 function readSessionCandidates(): ContextStatus[] {
+  return readSessionCandidatesWithFolder().map((c) => c.data);
+}
+
+/** readSessionCandidates, with the folder each file came from. A mod copy older
+ *  than 36 hours is skipped: nothing prunes fuel-gauge-mod/, and the bridge's
+ *  own files are cleaned up at that age (cleanupStaleSessions). */
+function readSessionCandidatesWithFolder(): { data: ContextStatus; folder: string }[] {
   const seen = new Set<string>();
-  const out: ContextStatus[] = [];
+  const out: { data: ContextStatus; folder: string }[] = [];
+  const modCutoff = Date.now() / 1000 - 36 * 60 * 60;
   for (const folder of SESSION_FOLDERS) {
     const dir = path.join(os.homedir(), '.claude', folder);
     let files: string[];
@@ -1681,7 +1715,8 @@ function readSessionCandidates(): ContextStatus[] {
         seen.add(id);
         const endedAt = endedSessions.get(id);
         if (endedAt !== undefined && !(data.timestamp > endedAt)) { continue; }
-        out.push(data);
+        if (folder !== SESSION_FOLDERS[0] && !(data.timestamp > modCutoff)) { continue; }
+        out.push({ data, folder });
       } catch {
         // Half-written: it heals on the next write. The other folder's copy of
         // the same session may still be read below.
