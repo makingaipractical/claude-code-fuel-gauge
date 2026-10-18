@@ -131,7 +131,7 @@ The bridge and your own status line cannot run at the same time. That is a Claud
   On macOS, `python3` comes with the Xcode Command Line Tools. Most developers already have them; if you do not,
   the first run pops Apple's "Install command line developer tools?" dialog. Install them once with
   `xcode-select --install` and the gauge works from then on.
-- Built and tested on macOS. Linux should work — the bridge needs nothing beyond `bash` and `python3` — but I have not run it there. Windows is untested; the bridge is a bash script, so at minimum it needs a `bash` on the path.
+- Built and tested on macOS. On Linux the bridge runs: it writes its session files in a dev container on Ubuntu 24.04. I have not yet seen the gauge draw there. Windows is untested; the bridge is a bash script, so at minimum it needs a `bash` on the path.
 - Usage limits display: a Claude subscription plan (Pro/Max). API-key sessions don't have these limits, so the display stays hidden.
 - Usage limits on a **Team plan**: Claude Code's status line documentation lists the limit figures for Pro and Max only ([statusline docs](https://code.claude.com/docs/en/statusline)), and Team users have reported them missing or intermittent ([claude-code#84995](https://github.com/anthropics/claude-code/issues/84995)). The limit items may stay hidden there, and the hover lines empty. Everything else works normally.
 
