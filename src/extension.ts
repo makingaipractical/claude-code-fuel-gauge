@@ -349,13 +349,18 @@ if transcript_ttl > 0:
     detected_ttl = transcript_ttl
     detection_time = transcript_time or now
 elif payload_cache_ttl > 0:
-    # No answer in the transcript, but Claude Code names the tier of its last
-    # request itself. expires_at less the TTL is when that request was made, so
-    # it may speak for the account under the same newer-wins rule below; without
-    # expires_at it is used for this session only.
+    # No answer in the transcript, but Claude Code names the cache tier itself:
+    # the tier its last cache write was billed at, or, for a session that has
+    # only read cache so far, the tier it asked for. expires_at less the TTL is
+    # when Claude Code last saw the cache alive (its last request, or a later
+    # keep-warm touch), so it may speak for the account under the same
+    # newer-wins rule below. Without expires_at, or with one that is not
+    # epoch seconds, it is used for this session only: a time in the future
+    # would win every later comparison and lock the account file.
     detected_ttl = payload_cache_ttl
-    if payload_cache_expires_at > payload_cache_ttl:
-        detection_time = payload_cache_expires_at - payload_cache_ttl
+    seen_at = payload_cache_expires_at - payload_cache_ttl
+    if payload_cache_expires_at > payload_cache_ttl and seen_at <= now + 60:
+        detection_time = seen_at
 elif api_call_happened and gap > 310 and cache_read > 0:
     # No answer in the transcript — an old Claude Code that sends no
     # transcript_path, a file we cannot read, a row too big to scan past. Fall

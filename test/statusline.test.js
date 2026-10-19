@@ -2091,6 +2091,15 @@ async function run(name, fn) {
     const account = fs.existsSync(accountFile) ? JSON.parse(fs.readFileSync(accountFile, 'utf-8')) : {};
     check('and speaks for the account, timed at expires_at less the TTL',
       account.detected_ttl === 3600 && account.detected_at === 1791000000 - 3600, JSON.stringify(account));
+    const older = runBridge({ ...base, session_id: 'pc-5m-older',
+      prompt_cache: { warm: true, ttl: '5m', expires_at: 1790000000 } });
+    const msStamp = runBridge({ ...base, session_id: 'pc-5m-ms',
+      prompt_cache: { warm: true, ttl: '5m', expires_at: 1791000000000 } });
+    const accountKept = JSON.parse(fs.readFileSync(accountFile, 'utf-8'));
+    check('an older observation, or an expires_at in milliseconds, leaves the account alone',
+      older.detected_ttl === 300 && msStamp.detected_ttl === 300 &&
+      accountKept.detected_ttl === 3600 && accountKept.detected_at === 1791000000 - 3600,
+      `${older.detected_ttl} ${msStamp.detected_ttl} ${JSON.stringify(accountKept)}`);
     const noExpiry = runBridge({ ...base, session_id: 'pc-5m-noexp',
       prompt_cache: { warm: true, ttl: '5m', expires_at: null } });
     const accountAfter = JSON.parse(fs.readFileSync(accountFile, 'utf-8'));
