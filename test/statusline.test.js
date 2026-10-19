@@ -2065,10 +2065,10 @@ async function run(name, fn) {
     if (typeof ext.deactivate === 'function') { ext.deactivate(); }
   });
 
-  // 36. THE PAYLOAD'S prompt_cache IS RECORDED, NOT YET USED (#4955). Claude
-  //     Code 2.1.296's bundle builds it into the status-line payload; the
-  //     bridge keeps what it says beside the transcript's answer, so live
-  //     sessions can show whether the two agree before either replaces the other.
+  // 36. THE PAYLOAD'S prompt_cache IS RECORDED, AND IS THE FIRST FALLBACK
+  //     (#4955). Claude Code builds it into the status-line payload; the bridge
+  //     keeps what it says beside the transcript's answer, and uses its TTL when
+  //     the transcript has none. The transcript still wins where both speak.
   await run('bridge-records-payload-prompt-cache', async (ext) => {
     fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
     ext.activate(ctx());
@@ -2085,9 +2085,27 @@ async function run(name, fn) {
     check('a 1h prompt_cache is recorded as 3600',
       withCache.payload_cache_ttl === 3600 && withCache.payload_cache_expires_at === 1791000000,
       `${withCache.payload_cache_ttl} ${withCache.payload_cache_expires_at}`);
+    check('with no transcript answer, the payload\'s TTL is used', withCache.detected_ttl === 3600,
+      String(withCache.detected_ttl));
+    const accountFile = path.join(fgDir, 'account_ttl.json');
+    const account = fs.existsSync(accountFile) ? JSON.parse(fs.readFileSync(accountFile, 'utf-8')) : {};
+    check('and speaks for the account, timed at expires_at less the TTL',
+      account.detected_ttl === 3600 && account.detected_at === 1791000000 - 3600, JSON.stringify(account));
+    const noExpiry = runBridge({ ...base, session_id: 'pc-5m-noexp',
+      prompt_cache: { warm: true, ttl: '5m', expires_at: null } });
+    const accountAfter = JSON.parse(fs.readFileSync(accountFile, 'utf-8'));
+    check('without expires_at it is used for its own session only',
+      noExpiry.detected_ttl === 300 && accountAfter.detected_ttl === 3600,
+      `${noExpiry.detected_ttl} ${JSON.stringify(accountAfter)}`);
+    const tp = path.join(TMPROOT, 'pc-disagree.jsonl');
+    fs.writeFileSync(tp, JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+      message: { role: 'assistant', usage: { cache_creation:
+        { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 812 } } } }) + '\n');
+    const disagree = runBridge({ ...base, session_id: 'pc-disagree', transcript_path: tp,
+      prompt_cache: { warm: true, ttl: '1h', expires_at: 1791000000 } });
+    check('where both speak, the transcript wins', disagree.detected_ttl === 300 &&
+      disagree.payload_cache_ttl === 3600, `${disagree.detected_ttl} ${disagree.payload_cache_ttl}`);
     const without = runBridge({ ...base, session_id: 'pc-none' });
-    check('and does not change the detected TTL', withCache.detected_ttl === without.detected_ttl,
-      `${withCache.detected_ttl} vs ${without.detected_ttl}`);
     check('no prompt_cache records 0', without.payload_cache_ttl === 0 && without.payload_cache_expires_at === 0,
       `${without.payload_cache_ttl} ${without.payload_cache_expires_at}`);
     const odd = runBridge({ ...base, session_id: 'pc-odd', prompt_cache: { ttl: 3600, expires_at: 'soon' } });

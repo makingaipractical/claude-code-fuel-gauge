@@ -12,6 +12,7 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 - Show Diagnostics now reads managed settings on Linux and WSL (`/etc/claude-code/`), and on every platform reads the `.json` files in `managed-settings.d/`. A policy file there that switches hooks off is now named.
 - A bridge you edited by hand is no longer replaced without a copy when `context-bridge.sh.fuel-gauge.orig` is already there. The first copy stays as it is, and a later, different edit is copied to `context-bridge.sh.fuel-gauge.orig.latest`, which holds the most recent one.
 - The package is smaller: it leaves out a screenshot the README does not show.
+- When the session transcript gives no cache lifetime, the bridge now takes it from the status line's own `prompt_cache` field before falling back on older guesses. The transcript still decides when both are there.
 
 ## v0.9.3 — 2026-10-15
 

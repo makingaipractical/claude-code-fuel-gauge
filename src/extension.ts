@@ -327,10 +327,11 @@ try:
 except Exception:
     transcript_ttl, transcript_time = 0, 0
 
-# Claude Code 2.1.296's own bundle puts a prompt_cache object in this payload
-# (ttl '5m' or '1h', expires_at in epoch seconds) once the session has made a
-# request (#4955). Not seen in a live payload yet, so it is only recorded beside
-# the transcript's answer, for a later comparison, and nothing reads it.
+# Claude Code puts a prompt_cache object in this payload (ttl '5m' or '1h',
+# expires_at in epoch seconds) once the session has made a request; documented
+# from 2.1.251 (#4955). On this Mac's live session files of 18-20 October 2026
+# its ttl matched the transcript's answer in all six, so it is the first
+# fallback below, and it stays recorded beside that answer.
 payload_cache_ttl = 0
 payload_cache_expires_at = 0
 pc = data.get('prompt_cache')
@@ -347,6 +348,14 @@ detection_time = 0
 if transcript_ttl > 0:
     detected_ttl = transcript_ttl
     detection_time = transcript_time or now
+elif payload_cache_ttl > 0:
+    # No answer in the transcript, but Claude Code names the tier of its last
+    # request itself. expires_at less the TTL is when that request was made, so
+    # it may speak for the account under the same newer-wins rule below; without
+    # expires_at it is used for this session only.
+    detected_ttl = payload_cache_ttl
+    if payload_cache_expires_at > payload_cache_ttl:
+        detection_time = payload_cache_expires_at - payload_cache_ttl
 elif api_call_happened and gap > 310 and cache_read > 0:
     # No answer in the transcript — an old Claude Code that sends no
     # transcript_path, a file we cannot read, a row too big to scan past. Fall
