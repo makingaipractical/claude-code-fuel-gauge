@@ -2347,6 +2347,28 @@ async function run(name, fn) {
       if (typeof ext.deactivate === 'function') { ext.deactivate(); }
     });
 
+    await run('locked-mod-copy-ages-out', async (ext) => {
+      // Clean review of 0.10.0, note 3: the locked session was read without the
+      // scan's filters, so a mod copy past 36 hours kept a colourless gauge up.
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      ext.activate(ctx());
+      await new Promise((r) => setTimeout(r, 60));
+      fireClaudeStart(ws);
+      writeSession('fuel-gauge-mod', 'agedmod', ws, 18, 0, { writer: 'mod' });
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      check('the locked mod-only session is drawn', byId(ID.context).text === '🧠 18%', byId(ID.context).text);
+      writeSession('fuel-gauge-mod', 'agedmod', ws, 18, 37 * 3600, { writer: 'mod' });
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      check('once the locked session\'s mod copy is older than 36 hours, the gauge hides',
+        byId(ID.context).visible === false, `${byId(ID.context).visible} ${byId(ID.context).text}`);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
     await run('second-root-session-is-drawn', async (ext) => {
       const a = path.join(TMPROOT, 'rootA'), b = path.join(TMPROOT, 'rootB');
       fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });

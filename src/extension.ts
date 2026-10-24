@@ -1685,17 +1685,34 @@ function matchesWorkspace(data: ContextStatus, roots: string[]): boolean {
 function readSessionFile(sessionId: string): ContextStatus {
   let firstError: unknown;
   for (const folder of SESSION_FOLDERS) {
+    let data: ContextStatus;
     try {
       const raw = fs.readFileSync(path.join(os.homedir(), '.claude', folder, `${sessionId}.json`), 'utf-8');
-      return JSON.parse(raw) as ContextStatus;
+      data = JSON.parse(raw) as ContextStatus;
     } catch (err) {
       if (firstError === undefined) { firstError = err; }
       // Only a missing file sends the read on to the mod's copy. A bridge file
       // caught half-written is the bridge's, and the next poll reads it.
       if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') { break; }
+      continue;
     }
+    // The locked session obeys the same filters as the scan: an old mod copy
+    // must not keep a gauge up that 0.9.3 would have released and hidden.
+    if (!mayDraw(sessionId, data, folder)) { throw new Error(`${folder}/${sessionId}.json is not drawn`); }
+    return data;
   }
   throw firstError;
+}
+
+/** False for a file the gauge must not draw: one written no later than its
+ *  session's end, or a mod copy older than 36 hours (nothing prunes
+ *  fuel-gauge-mod/; the bridge's own files are cleaned up at that age by
+ *  cleanupStaleSessions). */
+function mayDraw(sessionId: string, data: ContextStatus, folder: string): boolean {
+  if (!data || typeof data !== 'object') { return false; }
+  const endedAt = endedSessions.get(sessionId);
+  if (endedAt !== undefined && !(data.timestamp > endedAt)) { return false; }
+  return folder === SESSION_FOLDERS[0] || data.timestamp > Date.now() / 1000 - 36 * 60 * 60;
 }
 
 /** Every session file the gauge may draw, one per session. The bridge's file
@@ -1709,13 +1726,11 @@ function readSessionCandidates(): ContextStatus[] {
   return readSessionCandidatesWithFolder().map((c) => c.data);
 }
 
-/** readSessionCandidates, with the folder each file came from. A mod copy older
- *  than 36 hours is skipped: nothing prunes fuel-gauge-mod/, and the bridge's
- *  own files are cleaned up at that age (cleanupStaleSessions). */
+/** readSessionCandidates, with the folder each file came from, less the files
+ *  mayDraw refuses. */
 function readSessionCandidatesWithFolder(): { data: ContextStatus; folder: string }[] {
   const seen = new Set<string>();
   const out: { data: ContextStatus; folder: string }[] = [];
-  const modCutoff = Date.now() / 1000 - 36 * 60 * 60;
   for (const folder of SESSION_FOLDERS) {
     const dir = path.join(os.homedir(), '.claude', folder);
     let files: string[];
@@ -1727,10 +1742,7 @@ function readSessionCandidatesWithFolder(): { data: ContextStatus; folder: strin
         const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8')) as ContextStatus;
         if (!data || typeof data !== 'object') { continue; }
         seen.add(id);
-        const endedAt = endedSessions.get(id);
-        if (endedAt !== undefined && !(data.timestamp > endedAt)) { continue; }
-        if (folder !== SESSION_FOLDERS[0] && !(data.timestamp > modCutoff)) { continue; }
-        out.push({ data, folder });
+        if (mayDraw(id, data, folder)) { out.push({ data, folder }); }
       } catch {
         // Half-written: it heals on the next write. The other folder's copy of
         // the same session may still be read below.
