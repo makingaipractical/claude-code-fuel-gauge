@@ -14,7 +14,7 @@ Brain Drain puts four Claude Code readouts in your VS Code status bar: how full 
 **Terminal sessions only.** Brain Drain sees `claude` sessions started in a terminal, including VS Code's integrated terminal. It cannot see sessions in the chat panel of Anthropic's Claude Code extension, because the chat panel does not run the status line (checked on Claude Code 2.1.296).
 
 <p align="center">
-  <img src="images/status-active.png" width="360" alt="Two Claude Code sessions in separate VS Code windows, each with its own Brain Drain: context % and cache countdown in green — 20% in one, 9% in the other — and the model-effort indicator, fable·x-high">
+  <img src="images/status-active.png" width="520" alt="Brain Drain in the VS Code status bar: 🧠 24% context and the ◷ 59:24 cache countdown in green, the 5-hour usage at 58% resetting at 00:00, the weekly usage at 93% in red, and the model-effort indicator opus·high">
 </p>
 
 ## Everything stays on your machine
@@ -30,7 +30,7 @@ Anthropic keeps the front of your conversation warm in a prompt cache: for an ho
 Brain Drain shows the time you have left as its own status bar item, with its own colour, so cache urgency reads independently of how full your context is. None of the other Claude Code extensions I checked in August 2026 shows this. Anthropic's own chat panel now has a cache clock for its own sessions (Claude Code 2.1.301, October 2026); Brain Drain's countdown is for sessions you run in a terminal. Here a comfortable `10%` context sits in green next to an `expired` cache in red.
 
 <p align="center">
-  <img src="images/cache-expired.png" width="300" alt="Status bar showing 10% context in green, an expired cache countdown in red with a circle-slash icon, the model-effort indicator fable·x-high, and the amber usage alert dot">
+  <img src="images/cache-expired.png" width="400" alt="Status bar showing 🧠 10% context in green and ◷ expired in red, then the 5-hour usage at 57%, the weekly usage at 93% in red, and the model-effort indicator opus·high">
 </p>
 
 - **Counting down** — `◷ M:SS`, inherits the context colour while there is comfortable time left
