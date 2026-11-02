@@ -2,7 +2,7 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
-## v0.10.1
+## v0.10.1 — 2026-11-03
 
 - When Claude Code sends a weekly limit but no 5-hour one, the 5-hour item now reads `5h –` instead of disappearing, and its hover says your plan reports no 5-hour limit right now. Up to now a missing figure looked like a broken gauge. With neither figure (API-key sessions, or before the first response) both items stay hidden, and `fuel-gauge.showUsage: false` still hides them.
 
