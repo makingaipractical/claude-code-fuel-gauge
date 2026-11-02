@@ -2,7 +2,7 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
-## v0.10.0 (unreleased)
+## v0.10.0 — 2026-11-02
 
 - The status bar takes the look of the Brain Drain mod: `🧠 34%` `◷ 59:59` `5h 12% ↻22:40` `wk 25%` `opus·x-high`. The context gauge opens with 🧠 instead of the Claude and dashboard icons, and the cache countdown with ◷. The 5-hour and weekly limits are now always in the bar, each as its own item with its own colour: none below 70% used, yellow from 70%, red from 90%. The 5-hour item shows its reset time while it lies ahead. They replace the numberless alert dot. If you had hidden the alert dot, the 5-hour limit stays hidden: it takes over the dot's entry in the status bar's right-click menu. The weekly limit is a new entry there and shows until you hide it. `fuel-gauge.showUsage: false` still hides both.
 - With the Brain Drain mod installed, the gauge also reads the mod's copy of a session. While the bridge is your status line the mod writes its copy to `~/.claude/fuel-gauge-mod/`, a folder the gauge used to ignore. It now draws the mod's copy for a session the bridge wrote no file for; where both wrote, the bridge's file still counts.
