@@ -6,6 +6,7 @@ tsconfig.json
 **/*.map
 bridge/**
 .github/**
+dist/**
 .gitignore
 CONTRIBUTING.md
 SECURITY.md

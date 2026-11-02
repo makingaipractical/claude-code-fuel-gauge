@@ -1,0 +1,161 @@
+# Publishes a release when a v* tag is pushed: the VS Code Marketplace, Open VSX,
+# then a GitHub Release carrying the same .vsix.
+#
+# No token is stored anywhere. Both stores trust this workflow file through
+# trusted publishing (GitHub OIDC): the Marketplace through a Trusted Publishing
+# policy on the publisher, Open VSX through a trusted publisher on the namespace.
+# Each exchange yields a credential that lasts minutes.
+#
+# Run by hand (Actions > Release > Run workflow) it is a dry run: it checks,
+# tests and packages, uploads the .vsix as a run artifact, and publishes nothing.
+# .github/scripts/release-check.sh is the same dry run on your own machine.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check, test and package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      vsix: ${{ steps.check.outputs.vsix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: A release tag must point at a commit on main
+        if: github.event_name == 'push'
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main"; exit 1; }
+
+      - run: npm ci --ignore-scripts
+
+      - name: Check, test and package
+        id: check
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: .github/scripts/release-check.sh "$TAG"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+
+  marketplace:
+    name: Publish to the VS Code Marketplace
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      - name: The .vsix is the one the build job checked
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+
+      - name: Publish (trusted publishing, no stored token)
+        env:
+          VSIX: dist/${{ needs.build.outputs.vsix }}
+        run: npx --no-install vsce publish --oidc --packagePath "$VSIX"
+
+  openvsx:
+    name: Publish to Open VSX
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      - name: The .vsix is the one the build job checked
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+
+      - name: Publish (trusted publishing, no stored token)
+        env:
+          VSIX: dist/${{ needs.build.outputs.vsix }}
+        run: npx --yes ovsx@1.3.0 publish "$VSIX" --trusted-publishing
+
+  github-release:
+    name: GitHub Release with the .vsix
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build, marketplace, openvsx]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      - name: The .vsix is the one the build job checked
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+
+      # The title is the annotated tag's subject line, e.g.
+      #   git tag -a v0.10.1 -m "v0.10.1 — '5h –' when your plan sends no 5-hour limit"
+      # A lightweight tag gives the bare tag name.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VSIX: dist/${{ needs.build.outputs.vsix }}
+        run: |
+          title=""
+          tag_object="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object | select(.type == "tag") | .sha')"
+          if [ -n "$tag_object" ]; then
+            title="$(gh api "repos/$GH_REPO/git/tags/$tag_object" --jq '.message | split("\n")[0]')"
+          fi
+          gh release create "$TAG" "$VSIX" --verify-tag --title "${title:-$TAG}" --notes-file dist/release-notes.md
