@@ -75,7 +75,8 @@ Your session (5-hour) and weekly usage sit in the bar as two items, `5h 12% ↻2
 
 - **Normal** — no colour below 70% used
 - **Running hot** — yellow from 70%, red from 90%
-- **Hidden** — whenever Claude Code sends no figure for that limit (API-key sessions, or before the session's first response). Hidden means hidden: no misleading 0%.
+- **`5h –`** — when Claude Code sends a weekly figure but none for the 5-hour window. The hover says your plan reports no 5-hour limit right now, so a missing figure is not mistaken for a broken one.
+- **Hidden** — when Claude Code sends neither figure (API-key sessions, or before the session's first response). Never a misleading 0%.
 
 Hover either item, or the context gauge, for both percentages and their reset times. Turn both items and the hover lines off with `fuel-gauge.showUsage: false`.
 

@@ -2510,6 +2510,33 @@ async function run(name, fn) {
       end(ext);
     });
 
+    // #6739: a Max account that gets only the seven-day window from the server.
+    await run('mod-look-no-5h-window', async (ext) => {
+      const it = await show(ext, { rate_limit_5h_pct: -1, rate_limit_7d_pct: 65 });
+      check('with only a weekly figure the 5-hour item shows, reading 5h –',
+        it.h5.visible === true && it.h5.text === '5h –', `${it.h5.visible} ${it.h5.text}`);
+      check('the 5h – item has no colour', it.h5.color === undefined, String(it.h5.color && it.h5.color.id));
+      const tip = String(it.h5.tooltip && it.h5.tooltip.value);
+      check('its hover says the plan reports no 5-hour limit',
+        tip.includes('your plan reports no 5-hour limit right now') && tip.includes('Weekly limit'), tip);
+      const ctxTip = String(it.context.tooltip && it.context.tooltip.value);
+      check('the main gauge hover carries the same line', ctxTip.includes('no 5-hour limit'), ctxTip);
+      check('the weekly item still shows its figure', !!it.wk && it.wk.visible === true && it.wk.text === 'wk 65%', it.wk && it.wk.text);
+      end(ext);
+    });
+
+    await run('mod-look-no-5h-field', async (ext) => {
+      const it = await show(ext, { rate_limit_7d_pct: 40 });
+      check('a file with no 5h field but a weekly figure also reads 5h –', it.h5.visible === true && it.h5.text === '5h –', it.h5.text);
+      end(ext);
+    });
+
+    await run('mod-look-no-5h-showusage-off', async (ext) => {
+      const it = await show(ext, { rate_limit_5h_pct: -1, rate_limit_7d_pct: 65 }, { showUsage: false });
+      check('showUsage false hides 5h – too', it.h5.visible === false);
+      end(ext);
+    });
+
     await run('mod-look-showusage-off', async (ext) => {
       const it = await show(ext, { rate_limit_5h_pct: 95, rate_limit_7d_pct: 95 }, { showUsage: false });
       check('showUsage false hides the 5-hour item', it.h5.visible === false);

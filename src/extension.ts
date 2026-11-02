@@ -2087,10 +2087,15 @@ function usageColor(pct: number): vscode.ThemeColor | undefined {
 // has one colour and each figure is coloured by its own threshold. The reset
 // time shows only while it lies ahead. Both items carry the same hover with
 // both lines and their reset times; the fragment is also returned for the
-// main gauge's hover. Each item hides when its figure is absent (API-key plans;
-// before the session's first response), and both hide when showUsage is off,
-// with no session, or on a stale file. Absent data renders as nothing, never
-// as 0%.
+// main gauge's hover. Both hide when neither figure is present (API-key plans;
+// before the session's first response), when showUsage is off, with no
+// session, or on a stale file. A weekly figure without a 5-hour one means the
+// server sent only the seven-day window (some Max accounts, 2 Nov 2026,
+// #6739): the 5h item then reads `5h –` and its hover says so, because a
+// hidden item read as broken. Absent data is never drawn as 0%.
+const NO_5H_TEXT = '5h –';
+const NO_5H_LINE = 'Session limit (5h): your plan reports no 5-hour limit right now.';
+
 function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): string {
   const config = vscode.workspace.getConfiguration('fuel-gauge');
   const show = config.get<boolean>('showUsage', true);
@@ -2107,6 +2112,8 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): s
   const tipLines: string[] = [];
   if (pct5h >= 0) {
     tipLines.push(`Session limit (5h): ${Math.round(pct5h)}% used${formatResetSuffix(data.rate_limit_5h_reset, false)}`);
+  } else {
+    tipLines.push(NO_5H_LINE);
   }
   if (pct7d >= 0) {
     tipLines.push(`Weekly limit (all models): ${Math.round(pct7d)}% used${formatResetSuffix(data.rate_limit_7d_reset, true)}`);
@@ -2125,7 +2132,11 @@ function renderUsage(data: ContextStatus | undefined, fileAbandoned: boolean): s
     usageStatusBarItem.tooltip = md;
     usageStatusBarItem.show();
   } else {
-    usageStatusBarItem.hide();
+    // Only reached with a weekly figure present (both absent returned above).
+    usageStatusBarItem.text = NO_5H_TEXT;
+    usageStatusBarItem.color = undefined;
+    usageStatusBarItem.tooltip = md;
+    usageStatusBarItem.show();
   }
 
   if (pct7d >= 0) {
