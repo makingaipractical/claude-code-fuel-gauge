@@ -39,6 +39,9 @@ fi
 if ! npx --no-install vsce publish --help | grep -q -- '--oidc'; then
   fail "the locked @vscode/vsce has no --oidc (trusted publishing needs 4.1.0 or later)"
 fi
+if ! npx --no-install ovsx publish --help | grep -q -- '--trusted-publishing'; then
+  fail "the locked ovsx has no --trusted-publishing (needs 1.3.0 or later in devDependencies)"
+fi
 
 npm test
 
