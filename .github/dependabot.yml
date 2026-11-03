@@ -15,3 +15,13 @@ updates:
       # Held 10 Oct 2026: newer @types/vscode forces a higher engines.vscode,
       # which drops users on older VS Code builds and forks.
       - dependency-name: "@types/vscode"
+  # The release workflow pins each action to a commit SHA; this keeps those
+  # pins current. One grouped PR a month, like the npm one.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      all-actions:
+        patterns:
+          - "*"
