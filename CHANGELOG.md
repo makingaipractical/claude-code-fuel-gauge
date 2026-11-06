@@ -2,6 +2,10 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
+## Unreleased
+
+- With several VS Code windows open, a Claude Code session one window saw end is no longer forgotten when another window records an end of its own. Up to now the later window's list replaced the shared one, and the ended session's leftover mod copy could show the gauge again for up to 36 hours.
+
 ## v0.10.1 — 2026-11-03
 
 - When Claude Code sends a weekly limit but no 5-hour one, the 5-hour item now reads `5h –` instead of disappearing, and its hover says your plan reports no 5-hour limit right now. Up to now a missing figure looked like a broken gauge. With neither figure (API-key sessions, or before the first response) both items stay hidden, and `fuel-gauge.showUsage: false` still hides them.
