@@ -1863,6 +1863,28 @@ function resolveTTL(detectedTtl: number): { ttl: number; source: 'configured' | 
   return { ttl: DEFAULT_TTL, source: 'default' };
 }
 
+// The cache countdown's colour steps (0 green, 1 yellow, 2 red), Julian's
+// rule of 5 November 2026 (#7064). A cache that lives longer than five minutes
+// (the one-hour cache): yellow from 25 minutes left, red from 5. A five-minute
+// cache keeps the old steps, yellow under 60 seconds and red under 15, since
+// his minutes would make it red from its first second. Never the context's
+// colour. `cacheWarningSeconds` is the beep and plays no part here.
+const CACHE_LONG_YELLOW_S = 25 * 60;
+const CACHE_LONG_RED_S = 5 * 60;
+const CACHE_SHORT_YELLOW_S = 60;
+const CACHE_SHORT_RED_S = 15;
+
+function cacheSeverity(remaining: number, ttl: number): number {
+  if (ttl > 300) {
+    if (remaining <= CACHE_LONG_RED_S) { return 2; }
+    if (remaining <= CACHE_LONG_YELLOW_S) { return 1; }
+    return 0;
+  }
+  if (remaining < CACHE_SHORT_RED_S) { return 2; }
+  if (remaining < CACHE_SHORT_YELLOW_S) { return 1; }
+  return 0;
+}
+
 function formatCountdown(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   const m = Math.floor(s / 60);
@@ -2262,9 +2284,9 @@ function renderStatus() {
 
   maybePlayCacheWarningBeep(data, remaining);
 
-  // Cache color is independent of context: it inherits the context color while
-  // there's comfortable time left, then escalates on its own countdown
-  // thresholds — yellow under 60s, red under 15s / expired.
+  // The cache's colour is its own, never the context's (#7064): a 57-minute
+  // cache once showed yellow because the context had reached Julian's 30%
+  // warning. See cacheSeverity for the steps.
   let cacheText: string;
   let cacheColor: vscode.ThemeColor | undefined;
   let cacheTooltipFragment: string;
@@ -2275,13 +2297,7 @@ function renderStatus() {
     cacheTooltipFragment = `Cache: expired (${ttlLabel})`;
   } else {
     cacheText = `${CACHE_GLYPH} ${formatCountdown(remaining)}`;
-    if (remaining < 15) {
-      cacheColor = COLOR_RED;
-    } else if (remaining < 60) {
-      cacheColor = COLOR_YELLOW;
-    } else {
-      cacheColor = contextColor;
-    }
+    cacheColor = severityColor(cacheSeverity(remaining, ttl));
     // The hover names the deadline instead of repeating the countdown that is
     // already ticking in the bar beside it. That keeps the tooltip string
     // identical from tick to tick, and VS Code compares tooltips by content —

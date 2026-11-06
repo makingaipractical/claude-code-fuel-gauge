@@ -2,6 +2,10 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
+## Unreleased
+
+- The cache countdown keeps a colour of its own. It used to take the context gauge's colour while time was comfortable, so a cache with 57 minutes left turned yellow as soon as the context passed your warning threshold. It is now green until its own steps: for the one-hour cache yellow from 25 minutes left and red from 5; for the five-minute cache yellow under a minute and red under 15 seconds, as before. `expired` stays red. `fuel-gauge.cacheWarningSeconds` still sets only the beep.
+
 ## v0.10.1 — 2026-11-03
 
 - When Claude Code sends a weekly limit but no 5-hour one, the 5-hour item now reads `5h –` instead of disappearing, and its hover says your plan reports no 5-hour limit right now. Up to now a missing figure looked like a broken gauge. With neither figure (API-key sessions, or before the first response) both items stay hidden, and `fuel-gauge.showUsage: false` still hides them.

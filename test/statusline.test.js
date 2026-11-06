@@ -2510,6 +2510,39 @@ async function run(name, fn) {
       end(ext);
     });
 
+    // #7064, Julian on 5 Nov 2026: a 57-minute countdown showed yellow because the context
+    // had passed his 30% warning. The cache has its own colour: for the one-hour cache,
+    // yellow from 25 minutes left and red from 5; for the five-minute cache, yellow under
+    // 60 seconds and red under 15. Never the context's colour.
+    const cacheAt = async (ext, ttl, left, pct, cfg = {}) => {
+      const nowSec = Date.now() / 1000;
+      const it = await show(ext, { detected_ttl: ttl, last_api_call_ts: nowSec - (ttl - left), used_percentage: pct,
+        rate_limit_5h_pct: -1, rate_limit_7d_pct: -1 }, cfg);
+      return { cache: it.cache.color && it.cache.color.id, context: it.context.color && it.context.color.id, text: it.cache.text };
+    };
+    const JULIAN = { warningThreshold: 30, dangerThreshold: 40 };
+    for (const [name, ttl, left, pct, want, cfg] of [
+      ['57 minutes left with the context yellow at 34% stays green', 3600, 57 * 60, 34, 'charts.green', JULIAN],
+      ['26 minutes left with the context red stays green', 3600, 26 * 60, 85, 'charts.green', {}],
+      ['25 minutes left turns yellow', 3600, 25 * 60 - 1, 10, 'charts.yellow', {}],
+      ['six minutes left is yellow', 3600, 6 * 60, 10, 'charts.yellow', {}],
+      ['five minutes left turns red', 3600, 5 * 60 - 1, 10, 'charts.red', {}],
+      ['a five-minute cache with two minutes left is green beside a red context', 300, 120, 85, 'charts.green', {}],
+      ['a five-minute cache under 60 seconds is yellow', 300, 59, 10, 'charts.yellow', {}],
+      ['a five-minute cache under 15 seconds is red', 300, 14, 10, 'charts.red', {}],
+    ]) {
+      await run(`cache-colour-own: ${name}`, async (ext) => {
+        const got = await cacheAt(ext, ttl, left, pct, cfg);
+        check(name, got.cache === want, JSON.stringify(got));
+        end(ext);
+      });
+    }
+    await run('cache-colour-own: the context keeps its colour beside it', async (ext) => {
+      const got = await cacheAt(ext, 3600, 57 * 60, 34, JULIAN);
+      check('context yellow at 34% with warning 30, cache green', got.context === 'charts.yellow' && got.cache === 'charts.green', JSON.stringify(got));
+      end(ext);
+    });
+
     // #6739: a Max account that gets only the seven-day window from the server.
     await run('mod-look-no-5h-window', async (ext) => {
       const it = await show(ext, { rate_limit_5h_pct: -1, rate_limit_7d_pct: 65 });

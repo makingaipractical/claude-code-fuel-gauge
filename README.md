@@ -33,9 +33,9 @@ Brain Drain shows the time you have left as its own status bar item, with its ow
   <img src="images/cache-expired.png" width="400" alt="Status bar showing 🧠 10% context in green and ◷ expired in red, then the 5-hour usage at 57%, the weekly usage at 93% in red, and the model-effort indicator opus·high">
 </p>
 
-- **Counting down** — `◷ M:SS`, inherits the context colour while there is comfortable time left
-- **Under a minute** — yellow
-- **Expiring (<15s)** — red
+- **Counting down** — `◷ M:SS` in green, never the context's colour
+- **One-hour cache** — yellow from 25 minutes left, red from 5 minutes
+- **Five-minute cache** — yellow under a minute, red under 15 seconds
 - **Expired** — `◷ expired` in red
 - **Hidden** — when there is no cache state yet (fresh session, just after `/compact`)
 
