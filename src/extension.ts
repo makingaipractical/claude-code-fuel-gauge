@@ -621,15 +621,26 @@ const ENDED_KEEP_S = 36 * 60 * 60;
 function loadEndedSessions(store: vscode.Memento) {
   endedSessionsStore = store;
   endedSessions.clear();
-  const saved = store.get<Record<string, number>>(ENDED_SESSIONS_KEY, {}) || {};
+  mergeStoredEndedSessions();
+}
+
+/** Takes in what the store holds, keeping the newer moment per session. The
+ *  store is shared by every VS Code window, and this window's map was loaded
+ *  once at activation, so another window may have added sessions since (#7246). */
+function mergeStoredEndedSessions() {
+  const saved = endedSessionsStore?.get<Record<string, number>>(ENDED_SESSIONS_KEY, {}) || {};
   const cutoff = Date.now() / 1000 - ENDED_KEEP_S;
   for (const [id, at] of Object.entries(saved)) {
-    if (typeof at === 'number' && at > cutoff) { endedSessions.set(id, at); }
+    const mine = endedSessions.get(id);
+    if (typeof at === 'number' && at > cutoff && (mine === undefined || at > mine)) { endedSessions.set(id, at); }
   }
 }
 
 function markEnded(sessionId: string) {
   const now = Date.now() / 1000;
+  // Merge before writing: writing this window's map alone would drop a session
+  // another window marked ended since this one loaded (last writer wins).
+  mergeStoredEndedSessions();
   endedSessions.set(sessionId, now);
   for (const [id, at] of endedSessions) {
     if (at < now - ENDED_KEEP_S) { endedSessions.delete(id); }

@@ -2334,6 +2334,36 @@ async function run(name, fn) {
       if (typeof ext.deactivate === 'function') { ext.deactivate(); }
     });
 
+    await run('ended-sessions-merge-across-windows', async (ext) => {
+      // #7246: the store is shared by every window. Another window marks a session
+      // ended after this one loaded; this window's own end must not drop it.
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      wired();
+      const c = ctx();
+      const now = Date.now() / 1000;
+      await c.globalState.update('fuel-gauge.endedSessions', { early: now - 100 });
+      ext.activate(c);
+      await new Promise((r) => setTimeout(r, 60));
+      const event = fireClaudeStart(ws);
+      writeSession('fuel-gauge-mod', 'mine', ws, 21, 0, { writer: 'mod' });
+      fireConfigChange();
+      await new Promise((r) => setTimeout(r, 30));
+      // The other window, after this one loaded: a new session, and a newer end for 'early'.
+      await c.globalState.update('fuel-gauge.endedSessions', { early: now - 10, other: now - 5 });
+      fireExecutionEnd(event);
+      await new Promise((r) => setTimeout(r, 30));
+      const stored = c.globalState.get('fuel-gauge.endedSessions', {});
+      check('a session another window ended stays in the shared store after this window writes',
+        typeof stored.other === 'number', JSON.stringify(stored));
+      check('this window\'s own ended session is stored too',
+        typeof stored.mine === 'number', JSON.stringify(stored));
+      check('the newer moment for a session wins the merge',
+        stored.early === now - 10, JSON.stringify(stored));
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    });
+
     await run('old-mod-copy-is-not-drawn', async (ext) => {
       const ws = path.join(TMPROOT, 'work');
       fs.mkdirSync(ws, { recursive: true });
