@@ -626,7 +626,7 @@ function loadEndedSessions(store: vscode.Memento) {
 
 /** Takes in what the store holds, keeping the newer moment per session. The
  *  store is shared by every VS Code window, and this window's map was loaded
- *  once at activation, so another window may have added sessions since (#7246). */
+ *  once at activation, so another window may have added sessions since (MC-7246). */
 function mergeStoredEndedSessions() {
   const saved = endedSessionsStore?.get<Record<string, number>>(ENDED_SESSIONS_KEY, {}) || {};
   const cutoff = Date.now() / 1000 - ENDED_KEEP_S;
@@ -1875,7 +1875,7 @@ function resolveTTL(detectedTtl: number): { ttl: number; source: 'configured' | 
 }
 
 // The cache countdown's colour steps (0 green, 1 yellow, 2 red), Julian's
-// rule of 5 November 2026 (#7064). A cache that lives longer than five minutes
+// rule of 5 November 2026 (MC-7064). A cache that lives longer than five minutes
 // (the one-hour cache): yellow from 25 minutes left, red from 5. A five-minute
 // cache keeps the old steps, yellow under 60 seconds and red under 15, since
 // his minutes would make it red from its first second. Never the context's
@@ -2295,7 +2295,7 @@ function renderStatus() {
 
   maybePlayCacheWarningBeep(data, remaining);
 
-  // The cache's colour is its own, never the context's (#7064): a 57-minute
+  // The cache's colour is its own, never the context's (MC-7064): a 57-minute
   // cache once showed yellow because the context had reached Julian's 30%
   // warning. See cacheSeverity for the steps.
   let cacheText: string;
