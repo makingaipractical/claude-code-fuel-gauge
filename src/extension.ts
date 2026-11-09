@@ -2257,6 +2257,17 @@ function renderStatus() {
   const contextColor = (fileAbandoned || contextUnknown || windowImplausible)
     ? undefined
     : severityColor(contextSeverity);
+  // A reading over an hour old loses its colour, and the hover says why
+  // (MC-7517). Its likeliest cause: the user is in Anthropic's chat panel, which
+  // runs no status line, so the gauge still shows the folder's last terminal
+  // session while the panel shows its own. A clock time, not an age, keeps the
+  // hover the same from tick to tick. Revisit the wording when the mod that
+  // writes panel sessions is public (MC-6762).
+  const staleLine = fileAbandoned
+    ? `<br>Last updated at ${formatClockTime(data.timestamp)}, over an hour ago. ` +
+      "If you are working in Anthropic's chat panel, this reading is from an older session: " +
+      'a panel session writes nothing Brain Drain can read.'
+    : '';
   const contextLine = contextUnknown
     ? 'Context reading paused: Claude Code reports an empty window right after /compact. ' +
       'The number updates on your next turn.'
@@ -2283,7 +2294,7 @@ function renderStatus() {
   if (!hasCacheInfo) {
     cacheStatusBarItem.hide();
     statusBarItem.tooltip = buildTooltip(
-      modelCap, effortCap, effortLevel, contextLine, usageTip
+      modelCap, effortCap, effortLevel, `${contextLine}${staleLine}`, usageTip
     );
     statusBarItem.show();
     return;
@@ -2339,7 +2350,7 @@ function renderStatus() {
     modelCap,
     effortCap,
     effortLevel,
-    `${contextLine}<br>${cacheTooltipFragment}${rateLimitWarning}`,
+    `${contextLine}<br>${cacheTooltipFragment}${rateLimitWarning}${staleLine}`,
     usageTip
   );
   statusBarItem.show();

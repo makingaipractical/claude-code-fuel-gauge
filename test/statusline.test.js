@@ -2605,6 +2605,8 @@ async function run(name, fn) {
       check('showUsage false hides the 5-hour item', it.h5.visible === false);
       check('showUsage false hides the weekly item', !!it.wk && it.wk.visible === false);
       check('the gauge itself still shows', it.context.visible === true);
+      check('a fresh reading carries no last-updated line',
+        !String(it.context.tooltip && it.context.tooltip.value).includes('Last updated at'));
       end(ext);
     });
 
@@ -2614,6 +2616,11 @@ async function run(name, fn) {
       check('an abandoned session still shows the gauge, without colour',
         it.context.visible === true && it.context.color === undefined && it.context.text === '🧠 34%',
         `${it.context.visible} ${it.context.text} ${it.context.color && it.context.color.id}`);
+      const staleTip = String(it.context.tooltip && it.context.tooltip.value);
+      check('an abandoned reading says in the hover when it was last updated',
+        staleTip.includes('Last updated at ') && staleTip.includes('over an hour ago'), staleTip);
+      check("and names the chat panel as the likely reason it differs (MC-7517)",
+        staleTip.includes("Anthropic's chat panel"), staleTip);
       check('an abandoned session hides the 5-hour item', it.h5.visible === false);
       check('and the weekly item', !!it.wk && it.wk.visible === false);
       end(ext);
