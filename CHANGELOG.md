@@ -6,6 +6,7 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 
 - The cache countdown keeps a colour of its own. It used to take the context gauge's colour while time was comfortable, so a cache with 57 minutes left turned yellow as soon as the context passed your warning threshold. It is now green until its own steps: for the one-hour cache yellow from 25 minutes left and red from 5; for the five-minute cache yellow under a minute and red under 15 seconds, as before. `expired` stays red. `fuel-gauge.cacheWarningSeconds` still sets only the beep.
 - With several VS Code windows open, a Claude Code session one window saw end is no longer forgotten when another window records an end of its own. Up to now the later window's list replaced the shared one, and the ended session's leftover mod copy could show the gauge again for up to 36 hours.
+- You can put your own text in Claude Code's status line while the bridge holds it. Make an executable file at `~/.claude/fuel-gauge/status-line`: the bridge runs it on each update, after writing the session file, with the same JSON on stdin, and shows what it prints. It survives extension updates, which rewrite the bridge itself. It is skipped if it is not yours, if others can write to it, if it fails, or if it takes over 2 seconds. Without it the bridge prints nothing, as before.
 
 ## v0.10.1 — 2026-11-03
 

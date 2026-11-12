@@ -1451,6 +1451,73 @@ async function run(name, fn) {
       xcheck.window_implausible === true, String(xcheck.window_implausible));
   });
 
+  // 27b. THE USER'S OWN STATUS-LINE TEXT (MC-7719). The bridge prints nothing of
+  //      its own (MC-4957). An executable of the user's at
+  //      ~/.claude/fuel-gauge/status-line is run after the session file is
+  //      written, with the payload on stdin, and what it prints becomes the
+  //      status-line text. Julian's prints which Claude account a session runs on.
+  await run('bridge-status-line-hook', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const hook = path.join(fgDir, 'status-line');
+    const payload = (id) => JSON.stringify({
+      session_id: id, cwd: '/w', workspace: { project_dir: '/w' },
+      context_window: { context_window_size: 200000, used_percentage: 12,
+        current_usage: { input_tokens: 1000, output_tokens: 10,
+          cache_creation_input_tokens: 0, cache_read_input_tokens: 23000 } },
+    });
+    const bridge = (input) => execFileSync('bash', [bridgePath()], {
+      input, encoding: 'utf-8',
+      env: { ...process.env, HOME: TMPROOT, CLAUDE_CONFIG_DIR: '/seats/agents' },
+    });
+    const writeHook = (body, mode) => {
+      fs.writeFileSync(hook, '#!/bin/bash\n' + body + '\n');
+      fs.chmodSync(hook, mode);
+    };
+
+    check('without a hook the bridge prints nothing', bridge(payload('h0')) === '');
+
+    writeHook('cat > "$HOME/hook-stdin.json"\n'
+      + 'test -f "$HOME/.claude/fuel-gauge/h1.json" && echo "label:$CLAUDE_CONFIG_DIR"', 0o755);
+    const out = bridge(payload('h1'));
+    check("the hook's output becomes the status-line text", out === 'label:/seats/agents\n',
+      JSON.stringify(out));
+    let seen = {};
+    try { seen = JSON.parse(fs.readFileSync(path.join(TMPROOT, 'hook-stdin.json'), 'utf-8')); } catch {}
+    check('the hook gets the same payload on stdin', seen.session_id === 'h1', JSON.stringify(seen));
+    check('and the session file is still written',
+      fs.existsSync(path.join(fgDir, 'h1.json')));
+
+    writeHook('echo Ultra', 0o755);
+    check('a payload with no session id still shows the hook text', bridge('{}') === 'Ultra\n');
+
+    writeHook('echo Ultra', 0o775);
+    check('a hook others could have written is ignored', bridge(payload('h2')) === '');
+    check('and the session file is written anyway', fs.existsSync(path.join(fgDir, 'h2.json')));
+
+    writeHook('echo Ultra', 0o644);
+    check('a hook that is not executable is ignored', bridge(payload('h3')) === '');
+
+    writeHook('echo partial; exit 1', 0o755);
+    check('a hook that fails prints nothing', bridge(payload('h4')) === '');
+
+    writeHook('sleep 30 & echo $! > "$HOME/hook-child.pid"; wait; echo late', 0o755);
+    const t0 = Date.now();
+    const slow = bridge(payload('h5'));
+    const took = Date.now() - t0;
+    check('a hook slower than 2 s prints nothing', slow === '', JSON.stringify(slow));
+    check('and does not hold the bridge much past 2 s', took < 4000, `${took} ms`);
+    const childPid = Number(fs.readFileSync(path.join(TMPROOT, 'hook-child.pid'), 'utf-8'));
+    let childAlive = true;
+    try { process.kill(childPid, 0); } catch { childAlive = false; }
+    check('and what the hook started is stopped with it', childAlive === false, String(childPid));
+    check('and the session file is written anyway', fs.existsSync(path.join(fgDir, 'h5.json')));
+    fs.unlinkSync(hook);
+  });
+
   // 28. THE UNRELIABLE READING, RENDERED. Uncoloured, with the number left
   //     exactly as Claude Code gave it and a hover that says why.
   await run('render-implausible-window', async (ext) => {

@@ -59,7 +59,51 @@ def log(message):
     with open(os.environ['BD_LOG'], 'a') as f:
         print('[' + stamp + '] ' + message, file=f)
 
-data = json.load(sys.stdin)
+raw_payload = sys.stdin.read()
+
+# The bridge prints nothing of its own to Claude Code's status line: the
+# extension draws in VS Code and the Brain Drain mod draws in the terminal
+# (MC-4957). A user who wants text there anyway puts an executable of their own
+# at ~/.claude/fuel-gauge/status-line; whatever it prints becomes the status-line
+# text. It lives outside this script, which the extension rewrites on every
+# update, so it survives updates (MC-7719). It gets the same payload on stdin and
+# the same environment, CLAUDE_CONFIG_DIR included, and runs after the session
+# file is written. Any failure, a slow run (over 2 s) or a file anyone else could
+# have written leaves the line empty, as without one.
+def run_status_line_hook():
+    import subprocess, stat
+    hook = os.path.join(os.environ['BD_DIR'], 'status-line')
+    try:
+        st = os.stat(hook)
+    except OSError:
+        return
+    try:
+        if (not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid()
+                or st.st_mode & 0o022 or not os.access(hook, os.X_OK)):
+            log('status-line hook ignored: not an executable file of this user, or writable by others')
+            return
+        # Its own process group, so a slow hook is stopped with everything it
+        # started, rather than leaving a child behind on every update.
+        proc = subprocess.Popen([hook], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            out, _ = proc.communicate(raw_payload.encode('utf-8', 'replace'), timeout=2)
+        except subprocess.TimeoutExpired:
+            import signal
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            log('status-line hook took over 2 s and was stopped')
+            return
+        if proc.returncode == 0 and out:
+            sys.stdout.write(out.decode('utf-8', 'replace').rstrip(chr(10)) + chr(10))
+            sys.stdout.flush()
+    except Exception as e:
+        log('status-line hook failed: ' + type(e).__name__)
+
+import atexit
+atexit.register(run_status_line_hook)
+
+data = json.loads(raw_payload)
 session_id = data.get('session_id', '') if isinstance(data, dict) else ''
 if not session_id:
     log('No session_id in input')
