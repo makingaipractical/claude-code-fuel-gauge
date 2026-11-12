@@ -120,9 +120,9 @@ Brain Drain asks before taking the slot, saves what was there, and can put it ba
 - **Brain Drain: Show Diagnostics** — read-only report if the gauge is dark.
 - `fuel-gauge.manageStatusLine` — set to `false` to keep Brain Drain away from your settings entirely.
 
-The bridge and your own status line cannot run at the same time. That is a Claude Code limitation, not a choice I made.
+The bridge and your own status line cannot both hold the slot. That is a Claude Code limitation, not a choice I made.
 
-**To show a line of your own while the bridge holds the slot,** make an executable file at `~/.claude/fuel-gauge/status-line`. The bridge runs it on every update with the same JSON on stdin and shows what it prints, for example the name of the account a session runs on. Extension updates leave it alone. It must belong to you and be writable only by you, and it is skipped if it fails or takes over 2 seconds.
+**To show a line of your own while the bridge holds the slot,** make an executable file at `~/.claude/fuel-gauge/status-line`. The bridge runs it on every update with the same JSON on stdin and shows what it prints, for example the name of the account a session runs on. A status line script of your own that reads that JSON can run there too, so it keeps showing while the bridge holds the slot. Extension updates leave it alone. It must belong to you and be writable only by you, and it is skipped if it fails or takes over 2 seconds.
 
 **To keep your own status line,** install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the session file to `~/.claude/fuel-gauge/` itself, with the same fields, and the gauge reads it from there: context percentage, cache countdown, model·effort and the usage limits. While the mod has written a session file in the last 36 hours, Brain Drain does not ask for the status line at all. If the extension asks before the mod is running, choose **Not now**.
 
