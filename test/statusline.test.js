@@ -1455,7 +1455,7 @@ async function run(name, fn) {
   //      its own (MC-4957). An executable of the user's at
   //      ~/.claude/fuel-gauge/status-line is run after the session file is
   //      written, with the payload on stdin, and what it prints becomes the
-  //      status-line text. Julian's prints which Claude account a session runs on.
+  //      status-line text, for example which Claude account a session runs on.
   await run('bridge-status-line-hook', async (ext) => {
     fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
     ext.activate(ctx());
@@ -2305,7 +2305,7 @@ async function run(name, fn) {
 
   // 39. THE GAUGE READS THE MOD'S COPY WHEN THE BRIDGE WROTE NOTHING (#5396).
   //     While our bridge holds the status line, the mod writes to
-  //     ~/.claude/fuel-gauge-mod/. On 17 and 18 October most of Julian's
+  //     ~/.claude/fuel-gauge-mod/. On 17 and 18 October most of the maintainer's
   //     interactive sessions (Claude Code 2.1.302) got a file there and none from
   //     the bridge, and the gauge stayed hidden. It also matched only the first
   //     root of a multi-root workspace.
@@ -2607,8 +2607,8 @@ async function run(name, fn) {
       end(ext);
     });
 
-    // #7064, Julian on 5 Nov 2026: a 57-minute countdown showed yellow because the context
-    // had passed his 30% warning. The cache has its own colour: for the one-hour cache,
+    // MC-7064, the maintainer on 5 Nov 2026: a 57-minute countdown showed yellow because the context
+    // had passed a 30% warning. The cache has its own colour: for the one-hour cache,
     // yellow from 25 minutes left and red from 5; for the five-minute cache, yellow under
     // 60 seconds and red under 15. Never the context's colour.
     const cacheAt = async (ext, ttl, left, pct, cfg = {}) => {
@@ -2617,9 +2617,9 @@ async function run(name, fn) {
         rate_limit_5h_pct: -1, rate_limit_7d_pct: -1 }, cfg);
       return { cache: it.cache.color && it.cache.color.id, context: it.context.color && it.context.color.id, text: it.cache.text };
     };
-    const JULIAN = { warningThreshold: 30, dangerThreshold: 40 };
+    const WARN_AT_30 = { warningThreshold: 30, dangerThreshold: 40 };
     for (const [name, ttl, left, pct, want, cfg] of [
-      ['57 minutes left with the context yellow at 34% stays green', 3600, 57 * 60, 34, 'charts.green', JULIAN],
+      ['57 minutes left with the context yellow at 34% stays green', 3600, 57 * 60, 34, 'charts.green', WARN_AT_30],
       ['26 minutes left with the context red stays green', 3600, 26 * 60, 85, 'charts.green', {}],
       ['25 minutes left turns yellow', 3600, 25 * 60 - 1, 10, 'charts.yellow', {}],
       ['six minutes left is yellow', 3600, 6 * 60, 10, 'charts.yellow', {}],
@@ -2635,7 +2635,7 @@ async function run(name, fn) {
       });
     }
     await run('cache-colour-own: the context keeps its colour beside it', async (ext) => {
-      const got = await cacheAt(ext, 3600, 57 * 60, 34, JULIAN);
+      const got = await cacheAt(ext, 3600, 57 * 60, 34, WARN_AT_30);
       check('context yellow at 34% with warning 30, cache green', got.context === 'charts.yellow' && got.cache === 'charts.green', JSON.stringify(got));
       end(ext);
     });
