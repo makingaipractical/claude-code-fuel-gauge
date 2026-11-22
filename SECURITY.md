@@ -2,17 +2,21 @@
 
 ## What the extension touches
 
-Brain Drain for Claude Code runs entirely on your own machine. It makes no network calls of any
-kind: no telemetry, no update checks, no account, no API keys.
+Brain Drain for Claude Code runs entirely on your own machine. It makes no network calls of
+its own: no telemetry, no update checks, no account, no API keys. The one exception is yours to
+start: if you choose to install the Brain Drain mod, Claude Code's own plugin commands fetch it
+in a terminal you can see.
 
-It reads and writes these files, and nothing else:
+It reads, writes and runs these, and nothing else:
 
 | File or folder | What the extension does with it |
 | --- | --- |
-| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`. If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. While the Brain Drain mod feeds the gauge, it does neither until you run Connect Status Line. Every other setting is left as it was. |
+| `~/.claude/settings.json` | Reads it. Writes one key, `statusLine.command`, after first offering the Brain Drain mod instead (not on Windows). If the slot is empty, it connects at once and offers Undo. If another command is there, it asks first and saves that command. While the Brain Drain mod feeds the gauge, it does neither until you run Connect Status Line. Every other setting is left as it was. |
 | `~/.claude/scripts/context-bridge.sh` | Writes the bridge script that Claude Code pipes its status line data to. If a different script is already there, the extension copies it aside first, to `context-bridge.sh.fuel-gauge.orig`. If that copy is already there and the script differs from it, the extension copies it to `context-bridge.sh.fuel-gauge.orig.latest` instead, replacing any older copy of that name. |
 | `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | `~/.claude/fuel-gauge-mod/` | Only reads: the session files the Brain Drain mod writes there while the bridge is your status line. The gauge draws one only for a session the bridge wrote no file for, and **Show Diagnostics** reads them to see whether the mod is writing. |
+| `~/.claude.json` (or `.claude.json` in the folder `CLAUDE_CONFIG_DIR` names) | The bridge reads which account is signed in (`oauthAccount`: the account id and email only, never the login itself), unless the host app already gives both `CLAUDE_CODE_ACCOUNT_UUID` and `CLAUDE_CODE_USER_EMAIL`. Each session file then names the account its 5-hour and weekly figures belong to. Nothing is written to `.claude.json`. |
+| Claude Code's own `claude` command | Runs `claude --version` once, before it would first take the status line, to see whether the Brain Drain mod can run (not on Windows). Only if you pick **Install the mod**, it opens a terminal named Brain Drain that runs `claude plugin marketplace add` and `claude plugin install` where you can see them. Those are Claude Code's own commands: they fetch the mod from GitHub and record it in Claude Code's plugin folders and settings. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file and keeps two token counters from it, to find out whether your prompt cache lasts five minutes or an hour. Message text is never stored or sent anywhere, and nothing is written there. |
 | VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. Also keeps two times: when you last ran Restore, and when a window last asked about the status line, so that two windows do not ask at once. |
 | Settings files that can keep the gauge dark | Only when you run **Show Diagnostics**, and only to read: the open folder's `.claude/settings.json` and `.claude/settings.local.json`, Claude Code's managed settings (`managed-settings.json` and each `.json` file in the `managed-settings.d/` folder beside it, in `/Library/Application Support/ClaudeCode/` on macOS, `/etc/claude-code/` on Linux and WSL, and `C:\Program Files\ClaudeCode\` on Windows), and `settings.json` in the `CLAUDE_CONFIG_DIR` folder when VS Code was started with that variable set. The report names what it found. |

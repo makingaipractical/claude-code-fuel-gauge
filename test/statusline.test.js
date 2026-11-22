@@ -52,7 +52,7 @@ function makeVscode() {
         appendLine(l) { outputLines.push(l); },
         show() {}, dispose() {},
       }),
-      showInformationMessage: async (m, ...rest) => { messages.push(['info', m]); return answers.shift(); },
+      showInformationMessage: async (m, ...rest) => { messages.push(['info', m]); const a = answers.shift(); return typeof a === 'function' ? a() : a; },
       showWarningMessage: async (m, ...rest) => { messages.push(['warn', m]); return answers.shift(); },
       showErrorMessage: async (m, ...rest) => { messages.push(['error', m]); return answers.shift(); },
       showTextDocument: async () => {},
@@ -2832,7 +2832,7 @@ async function run(name, fn) {
       check('a visible terminal named Brain Drain opens', !!t && t.name === 'Brain Drain' && t.shown);
       check('it runs the marketplace add and the install',
         !!t && t.sent.length === 1 && t.sent[0] ===
-        'claude plugin marketplace add makingaipractical/brain-drain-for-claude-code && claude plugin install brain-drain@brain-drain',
+        'claude plugin marketplace add makingaipractical/brain-drain-for-claude-code; claude plugin install brain-drain@brain-drain',
         t && JSON.stringify(t.sent));
       check('the answer is kept, with its time',
         c.globalState.get('fuel-gauge.modOffer') === 'Install the mod' && c.globalState.get('fuel-gauge.modOfferAt') > 0);
@@ -2853,6 +2853,43 @@ async function run(name, fn) {
       check('the answer is kept, so it is not asked again', c.globalState.get('fuel-gauge.modOffer') === 'Use the status line');
     });
 
+    await run('mod-offer-reads-settings-again', async (ext) => {
+      // Review of 22 Nov: the offer can stay open for hours while Claude Code
+      // writes settings.json. What was written meanwhile must survive, and a
+      // status line set meanwhile is asked about, not replaced.
+      fakeClaude('2.1.330');
+      empty();
+      answers = [() => {
+        fs.writeFileSync(settingsPath, JSON.stringify({
+          model: 'opus', enabledPlugins: { 'x@y': true },
+          statusLine: { type: 'command', command: '/usr/local/bin/my-own-line' },
+        }, null, 2) + '\n');
+        return 'Use the status line';
+      }, 'Replace'];
+      const c = ctx();
+      ext.activate(c);
+      await until(() => readSettings().statusLine && readSettings().statusLine.command === bridgePath());
+      const after = readSettings();
+      check('a status line set while the offer was open gets the Replace dialog', messages.some((m) => m[0] === 'warn'), JSON.stringify(messages));
+      check('keys written while the offer was open are kept', after.enabledPlugins && after.enabledPlugins['x@y'] === true && after.model === 'opus', JSON.stringify(after));
+      answers = ['Restore'];
+      await registered['fuel-gauge.restoreStatusLine']();
+      check('Restore gives back the command set meanwhile', readSettings().statusLine && readSettings().statusLine.command === '/usr/local/bin/my-own-line', JSON.stringify(readSettings()));
+    });
+    await run('mod-offer-not-on-windows', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      const real = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        ext.activate(ctx());
+        await until(() => !!readSettings().statusLine);
+      } finally {
+        Object.defineProperty(process, 'platform', real);
+      }
+      check('Windows gets no offer', !offered(), JSON.stringify(messages));
+      check('and today\'s connection', readSettings().statusLine && readSettings().statusLine.command === bridgePath());
+    });
     await run('mod-offer-use-status-line-foreign', async (ext) => {
       fakeClaude('2.1.330');
       fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/ccstatusline' } }, null, 2) + '\n');

@@ -1320,21 +1320,26 @@ const MOD_OFFER_TEXT =
 const MOD_INSTALL = 'Install the mod';
 const MOD_USE_STATUS_LINE = 'Use the status line';
 
-/** `claude --version` as [major, minor, patch], or undefined when no claude answers within 3 s. */
-function readClaudeVersion(): Promise<number[] | undefined> {
+/** `claude --version` as [major, minor, patch] and the claude that answered, or undefined when none answers within 3 s. */
+function readClaudeVersion(): Promise<{ version: number[]; bin: string } | undefined> {
   const home = os.homedir();
   const candidates = ['claude', path.join(home, '.local', 'bin', 'claude'), path.join(home, '.claude', 'local', 'claude')];
-  const tryOne = (i: number): Promise<number[] | undefined> => {
+  const tryOne = (i: number): Promise<{ version: number[]; bin: string } | undefined> => {
     if (i >= candidates.length) { return Promise.resolve(undefined); }
     return new Promise((resolve) => {
       execFile(candidates[i], ['--version'], { timeout: 3000 }, (err, stdout) => {
         const m = err ? null : /(\d+)\.(\d+)\.(\d+)/.exec(String(stdout));
-        if (m) { resolve([Number(m[1]), Number(m[2]), Number(m[3])]); }
+        if (m) { resolve({ version: [Number(m[1]), Number(m[2]), Number(m[3])], bin: candidates[i] }); }
         else { resolve(tryOne(i + 1)); }
       });
     });
   };
   return tryOne(0);
+}
+
+/** A word for a POSIX shell: kept bare when it holds only safe characters, else single-quoted. */
+function shellWord(w: string): string {
+  return /^[A-Za-z0-9_./-]+$/.test(w) ? w : `'${w.replace(/'/g, `'\\''`)}'`;
 }
 
 function versionAtLeast(v: readonly number[], min: readonly number[]): boolean {
@@ -1355,8 +1360,11 @@ async function offerMod(context: vscode.ExtensionContext): Promise<'proceed' | '
     const at = context.globalState.get<number>(MOD_OFFER_AT_KEY, 0) || 0;
     return Date.now() - at < MOD_GRACE_MS ? 'leave' : 'proceed';
   }
-  const version = await readClaudeVersion();
-  if (!version || !versionAtLeast(version, MOD_MIN_CLAUDE)) { return 'proceed'; }
+  // Windows: the install line is written for a POSIX shell, and Windows
+  // PowerShell 5.1 rejects it, so the offer is not made there (review of 22 Nov).
+  if (process.platform === 'win32') { return 'proceed'; }
+  const found = await readClaudeVersion();
+  if (!found || !versionAtLeast(found.version, MOD_MIN_CLAUDE)) { return 'proceed'; }
   if (!claimModalLock(context)) { return 'leave'; } // another window is asking
 
   const choice = await vscode.window.showInformationMessage(MOD_OFFER_TEXT, MOD_INSTALL, MOD_USE_STATUS_LINE);
@@ -1367,10 +1375,13 @@ async function offerMod(context: vscode.ExtensionContext): Promise<'proceed' | '
   await context.globalState.update(MOD_OFFER_AT_KEY, Date.now());
   const terminal = vscode.window.createTerminal({ name: 'Brain Drain' });
   terminal.show();
-  terminal.sendText(`claude plugin marketplace add ${MOD_MARKETPLACE} && claude plugin install ${MOD_PLUGIN}`);
+  // The claude that answered the version check, so a fallback install folder
+  // works too; `;` so the install still runs when the marketplace is already added.
+  const bin = shellWord(found.bin);
+  terminal.sendText(`${bin} plugin marketplace add ${MOD_MARKETPLACE}; ${bin} plugin install ${MOD_PLUGIN}`);
   void vscode.window.showInformationMessage(
     'Brain Drain: installing the mod in the Brain Drain terminal. Start a new Claude Code session ' +
-    'when it has finished, and the gauge reads it from there. Your status line is left alone.'
+    'when it has finished, and the gauge reads it from there. Brain Drain leaves your status line alone.'
   );
   return 'leave';
 }
@@ -1400,8 +1411,8 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     return;
   }
 
-  const settings = read.kind === 'ok' ? read.settings : {};
-  const state = classifyStatusLine(settings, bridgePath);
+  let settings = read.kind === 'ok' ? read.settings : {};
+  let state = classifyStatusLine(settings, bridgePath);
 
   if (state.owner === 'ours') {
     statusLineOwner = 'ours';
@@ -1427,6 +1438,21 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
       return;
     }
     lockHeld = offer === 'proceed-locked';
+    // The offer can stay open for hours, and Claude Code writes settings.json
+    // meanwhile. Read it again, so the write below starts from what is there now
+    // and a status line set meanwhile is asked about, not replaced (review of 22 Nov).
+    const again = readSettings();
+    if (again.kind === 'unreadable') {
+      statusLineOwner = 'unknown';
+      return;
+    }
+    settings = again.kind === 'ok' ? again.settings : {};
+    state = classifyStatusLine(settings, bridgePath);
+    if (state.owner === 'ours') {
+      statusLineOwner = 'ours';
+      foreignCommand = null;
+      return;
+    }
   }
 
   if (state.owner === 'empty') {

@@ -19,7 +19,7 @@ Brain Drain puts four Claude Code readouts in your VS Code status bar: how full 
 
 ## Everything stays on your machine
 
-Brain Drain never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of any kind*. Every number it shows comes from data Claude Code hands to its status line command on your own machine, plus the end of the session transcript Claude Code already writes.
+Brain Drain never logs into your Claude account. It has no account of its own, no API key and no telemetry, and it makes *no network calls of its own*. The one exception is yours to start: if you choose to install the Brain Drain mod, Claude Code's own plugin commands fetch it in a terminal you can see. Every number it shows comes from data Claude Code hands to its status line command on your own machine, plus the end of the session transcript Claude Code already writes.
 
 The complete list of what it reads and writes is in [Privacy](#privacy) further down, and in [SECURITY.md](SECURITY.md). It writes only under `~/.claude` and in VS Code's own storage.
 
@@ -101,7 +101,7 @@ Claude Code has a [statusline feature](https://code.claude.com/docs/en/statuslin
 1. **Bridge script** — installed automatically on first activation. Claude Code pipes session data to it, and it writes one small JSON file per session to `~/.claude/fuel-gauge/`.
 2. **Extension** — polls that directory every 15 seconds, finds the session matching your current workspace, and shows the numbers in the status bar.
 
-Everything — context, cache, model, effort, usage limits — rides that same local feed. No network calls, no API keys, no accounts.
+Everything — context, cache, model, effort, usage limits — rides that same local feed. No network calls of its own, no API keys, no accounts.
 
 Works for `claude` sessions in a terminal, including VS Code's integrated terminal. Sessions in the chat panel of Anthropic's Claude Code extension do not run the status line, so the bridge cannot see them (checked on Claude Code 2.1.296). From its version 0.4.0 the Brain Drain mod writes the session file for them, the same file the gauge reads from a terminal session (the mod's write checked on Claude Code 2.1.316).
 
@@ -126,7 +126,7 @@ The bridge and your own status line cannot both hold the slot. That is a Claude 
 
 **To keep your own status line,** install the [Brain Drain mod](https://github.com/makingaipractical/brain-drain-for-claude-code). Whenever the bridge is not your status line, the mod writes the session file to `~/.claude/fuel-gauge/` itself, with the same fields, and the gauge reads it from there: context percentage, cache countdown, model·effort and the usage limits. While the mod has written a session file in the last 36 hours, Brain Drain does not ask for the status line at all.
 
-**Brain Drain offers the mod first.** Before it takes the status line, Brain Drain asks once whether to install the mod instead. It asks only where `claude --version` answers with 2.1.327 or later, the version the mod 0.4.0 was tested with, and not when the mod already writes, when `fuel-gauge.manageStatusLine` is `false`, or when you run **Connect Status Line**. **Install the mod** opens a terminal named Brain Drain that runs `claude plugin marketplace add makingaipractical/brain-drain-for-claude-code` and then `claude plugin install brain-drain@brain-drain`, where you can watch them ([install from your shell](https://code.claude.com/docs/en/discover-plugins#install-from-your-shell)). Start a new Claude Code session when they have finished. Brain Drain then leaves `~/.claude/settings.json` alone for a day; if the mod has not written a session file by then, it asks for the status line as before. **Use the status line** is the bridge, and Brain Drain does not offer the mod again. Closing the message asks again next time. On Windows the offer is skipped and the status line is asked for as before.
+**Brain Drain offers the mod first.** Before it takes the status line, Brain Drain asks once whether to install the mod instead. It asks only where `claude --version` answers with 2.1.327 or later, the version the mod 0.4.0 was tested with, and not when the mod already writes, when `fuel-gauge.manageStatusLine` is `false`, or when you run **Connect Status Line**. **Install the mod** opens a terminal named Brain Drain that runs `claude plugin marketplace add makingaipractical/brain-drain-for-claude-code` and then `claude plugin install brain-drain@brain-drain`, where you can watch them ([install from your shell](https://code.claude.com/docs/en/discover-plugins#install-from-your-shell)). Start a new Claude Code session when they have finished. Brain Drain then writes nothing to `~/.claude/settings.json` for a day (the plugin install records the mod there itself); if the mod has not written a session file by then, it asks for the status line as before. **Use the status line** is the bridge, and Brain Drain does not offer the mod again. Closing the message asks again next time. On Windows the offer is skipped and the status line is asked for as before.
 
 ## Requirements
 
@@ -187,7 +187,7 @@ If you would rather not use GitHub — or you want to talk about something that 
 
 ## Privacy
 
-No API calls, no telemetry, no runtime dependencies, no account. Everything runs locally on Claude Code's own statusline data, including the usage numbers. This is the complete list of what Brain Drain reads and writes:
+No API calls, no telemetry, no runtime dependencies, no account. Everything runs locally on Claude Code's own statusline data, including the usage numbers. This is the complete list of what Brain Drain reads, writes and runs:
 
 | File or folder | What Brain Drain does with it |
 | --- | --- |
@@ -196,6 +196,7 @@ No API calls, no telemetry, no runtime dependencies, no account. Everything runs
 | `~/.claude/fuel-gauge/` | Writes one small JSON file per Claude Code session, and reads them back to draw the status bar. Also `account_ttl.json` (the cache lifetime last seen), `config.json` and `bridge.log`. |
 | `~/.claude/fuel-gauge-mod/` | Only reads: the session files the Brain Drain mod writes there while the bridge is your status line. The gauge draws one only for a session the bridge wrote no file for, and **Show Diagnostics** reads them to see whether the mod is writing. |
 | `~/.claude.json` (or `.claude.json` in the folder `CLAUDE_CONFIG_DIR` names) | The bridge reads which account is signed in (`oauthAccount`: the account id and email only, never the login itself), unless the host app already gives both `CLAUDE_CODE_ACCOUNT_UUID` and `CLAUDE_CODE_USER_EMAIL`. Each session file then names the account its 5-hour and weekly figures belong to (`account_uuid`, `account_email`). Nothing is written to `.claude.json`. |
+| Claude Code's own `claude` command | Runs `claude --version` once, before it would first take the status line, to see whether the Brain Drain mod can run (not on Windows). Only if you pick **Install the mod**, it opens a terminal named Brain Drain that runs `claude plugin marketplace add` and `claude plugin install` where you can see them. Those are Claude Code's own commands: they fetch the mod from GitHub and record it in Claude Code's plugin folders and settings. |
 | Claude Code's session transcript, under `~/.claude/projects/` | Reads the end of the current session's file and keeps two token counters from it, to find out whether your prompt cache lasts five minutes or an hour. Message text is never stored or sent anywhere, and nothing is written there. |
 | VS Code global storage | Writes a copy of your previous status line command, so that Restore Previous Status Line always has something to give back. Also keeps two times: when you last ran Restore, and when a window last asked about the status line, so that two windows do not ask at once. |
 | Settings files that can keep the gauge dark | Only when you run **Show Diagnostics**, and only to read: the open folder's `.claude/settings.json` and `.claude/settings.local.json`, Claude Code's managed settings (`managed-settings.json` and each `.json` file in the `managed-settings.d/` folder beside it, in `/Library/Application Support/ClaudeCode/` on macOS, `/etc/claude-code/` on Linux and WSL, and `C:\Program Files\ClaudeCode\` on Windows), and `settings.json` in the `CLAUDE_CONFIG_DIR` folder when VS Code was started with that variable set. The report names what it found. |
