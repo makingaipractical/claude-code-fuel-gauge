@@ -181,6 +181,7 @@ prev_window_implausible = False
 prev_window_implausible_by = None
 prev_writer = None
 prev_written_at = 0
+prev_account = {}
 if bd_dir and session_id:
     prev_file = os.path.join(bd_dir, session_id + '.json')
     try:
@@ -194,6 +195,7 @@ if bd_dir and session_id:
             prev_window_implausible_by = prev.get('window_implausible_by')
             prev_writer = prev.get('writer')
             prev_written_at = prev.get('timestamp', 0) or 0
+            prev_account = {k: prev.get(k) for k in ('account_uuid', 'account_email', 'account_source')}
     except Exception:
         pass
 
@@ -477,6 +479,72 @@ try:
 except Exception:
     effort_level = ''
 
+# The account the rate limits belong to (MC-8006), so no reader has to guess it
+# from the weekly reset moment. The host's word first: the desktop app and SDK
+# hosts set CLAUDE_CODE_ACCOUNT_UUID and CLAUDE_CODE_USER_EMAIL, which Claude
+# Code only reads. Else the login record of the session's configuration folder
+# (oauthAccount in .claude.json under CLAUDE_CONFIG_DIR, else the home folder):
+# the account's identity, never the credential. All of it correct or none: a part
+# the host leaves out is taken only from a record naming the same account. The
+# first account read for a session stands while the record names it; once the
+# record names another (a /login), which login the session spends is not known,
+# so its file says 'changed' from then on, carried from one write to the next.
+# The Brain Drain mod follows the same rule.
+def account_word(v):
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+def account_in_record(record_path):
+    try:
+        with open(record_path) as f:
+            rec = json.load(f)
+    except Exception:
+        return None
+    acct = rec.get('oauthAccount') if isinstance(rec, dict) else None
+    if not isinstance(acct, dict):
+        return None
+    uuid, email = account_word(acct.get('accountUuid')), account_word(acct.get('emailAddress'))
+    return {'uuid': uuid, 'email': email} if (uuid or email) else None
+
+def same_account(a, b):
+    if not a or not b:
+        return False
+    if a.get('uuid') and b.get('uuid'):
+        return a['uuid'] == b['uuid']
+    return bool(a.get('email')) and bool(b.get('email')) and a['email'].lower() == b['email'].lower()
+
+def session_account(prev_acct):
+    env_uuid = account_word(os.environ.get('CLAUDE_CODE_ACCOUNT_UUID'))
+    env_email = account_word(os.environ.get('CLAUDE_CODE_USER_EMAIL'))
+    if env_uuid and env_email:
+        return env_uuid, env_email, 'session'
+    config_dir = account_word(os.environ.get('CLAUDE_CONFIG_DIR'))
+    base = os.path.expanduser(config_dir) if config_dir else os.path.expanduser('~')
+    rec = account_in_record(os.path.join(base, '.claude.json'))
+    if env_uuid or env_email:
+        if env_uuid:
+            same = rec is not None and rec['uuid'] == env_uuid
+        else:
+            same = rec is not None and (rec['email'] or '').lower() == env_email.lower()
+        return (env_uuid or (rec['uuid'] if same else None),
+                env_email or (rec['email'] if same else None), 'session')
+    if prev_acct.get('account_source') == 'changed':
+        return None, None, 'changed'
+    if prev_acct.get('account_source') == 'folder':
+        first = {'uuid': account_word(prev_acct.get('account_uuid')),
+                 'email': account_word(prev_acct.get('account_email'))}
+        if first['uuid'] or first['email']:
+            if rec and not same_account(first, rec):
+                return None, None, 'changed'
+            return first['uuid'], first['email'], 'folder'
+    if rec:
+        return rec['uuid'], rec['email'], 'folder'
+    return None, None, None
+
+try:
+    account_uuid, account_email, account_source = session_account(prev_account)
+except Exception:
+    account_uuid, account_email, account_source = None, None, None
+
 output = {
     'cwd': data.get('cwd', ''),
     'project_dir': project_dir,
@@ -502,6 +570,9 @@ output = {
     'effort_level': effort_level,
     'payload_cache_ttl': payload_cache_ttl,
     'payload_cache_expires_at': payload_cache_expires_at,
+    'account_uuid': account_uuid,
+    'account_email': account_email,
+    'account_source': account_source,
 }
 
 # Written beside the target under a per-process name, then renamed into place:

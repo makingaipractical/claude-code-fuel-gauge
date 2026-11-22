@@ -1465,6 +1465,88 @@ async function run(name, fn) {
       xcheck.window_implausible === true, String(xcheck.window_implausible));
   });
 
+  // 27a. THE ACCOUNT THE FIGURES BELONG TO (MC-8006). Readers of these files
+  //      guessed the account from the weekly reset, and a wrong guess put
+  //      another account's week in front of a session. The bridge names it:
+  //      the host's variables first, else the configuration folder's record;
+  //      null when not certain, and 'changed' after a change of login.
+  await run('bridge-account', async (ext) => {
+    fs.writeFileSync(settingsPath, JSON.stringify({}, null, 2) + '\n');
+    ext.activate(ctx());
+    await new Promise((r) => setTimeout(r, 60));
+    if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+    const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+    const FIRST = { accountUuid: 'aaaaaaaa-0000-0000-0000-000000000001', emailAddress: 'first@example.com' };
+    const SECOND = { accountUuid: 'bbbbbbbb-0000-0000-0000-000000000002', emailAddress: 'second@example.com' };
+    const homeRecord = path.join(TMPROOT, '.claude.json');
+    const seat = path.join(TMPROOT, '.claude-seat');
+    fs.mkdirSync(seat, { recursive: true });
+    const setRecord = (file, acct) => fs.writeFileSync(file, JSON.stringify({ numStartups: 2, oauthAccount: acct }));
+    // This test's own process may run inside a Claude Code session: none of its account variables may leak in.
+    const baseEnv = { ...process.env, HOME: TMPROOT };
+    for (const k of ['CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_ACCOUNT_UUID', 'CLAUDE_CODE_USER_EMAIL']) { delete baseEnv[k]; }
+    const write = (sid, env = {}) => {
+      execFileSync('bash', [bridgePath()], {
+        input: JSON.stringify({
+          session_id: sid, cwd: '/w', workspace: { project_dir: '/w' },
+          context_window: { context_window_size: 200000, total_input_tokens: 60000, used_percentage: 30,
+            current_usage: { input_tokens: 10000, output_tokens: 100, cache_creation_input_tokens: 5000, cache_read_input_tokens: 45000 } },
+        }),
+        env: { ...baseEnv, ...env },
+      });
+      return JSON.parse(fs.readFileSync(path.join(fgDir, sid + '.json'), 'utf-8'));
+    };
+
+    try {
+      fs.rmSync(homeRecord, { force: true });
+      let f = write('acct-none');
+      check('with no record and no variables the account is null',
+        f.account_uuid === null && f.account_email === null && f.account_source === null, JSON.stringify([f.account_uuid, f.account_source]));
+
+      setRecord(homeRecord, SECOND);
+      f = write('acct-home');
+      check('a terminal session names its home folder\'s account',
+        f.account_uuid === SECOND.accountUuid && f.account_email === SECOND.emailAddress && f.account_source === 'folder', JSON.stringify(f.account_email));
+
+      setRecord(path.join(seat, '.claude.json'), FIRST);
+      f = write('acct-seat', { CLAUDE_CONFIG_DIR: seat + '/' });
+      check('a seat folder\'s session names that folder\'s account',
+        f.account_email === FIRST.emailAddress && f.account_source === 'folder', JSON.stringify(f.account_email));
+
+      f = write('acct-desktop', { CLAUDE_CODE_ACCOUNT_UUID: FIRST.accountUuid, CLAUDE_CODE_USER_EMAIL: FIRST.emailAddress });
+      check('a desktop session names the account its host handed it, not the record\'s',
+        f.account_email === FIRST.emailAddress && f.account_source === 'session', JSON.stringify(f.account_email));
+
+      f = write('acct-uuid-only', { CLAUDE_CODE_ACCOUNT_UUID: FIRST.accountUuid });
+      check('a part the host leaves out is not taken from another account\'s record',
+        f.account_uuid === FIRST.accountUuid && f.account_email === null && f.account_source === 'session', JSON.stringify(f.account_email));
+      f = write('acct-uuid-same', { CLAUDE_CODE_ACCOUNT_UUID: SECOND.accountUuid });
+      check('and is taken from the same account\'s record',
+        f.account_email === SECOND.emailAddress, JSON.stringify(f.account_email));
+
+      // A /login to another account on the same folder, while the session runs.
+      setRecord(homeRecord, FIRST);
+      f = write('acct-login');
+      setRecord(homeRecord, SECOND);
+      f = write('acct-login');
+      check('after a /login to another account the file says changed and names none',
+        f.account_uuid === null && f.account_email === null && f.account_source === 'changed', JSON.stringify([f.account_email, f.account_source]));
+      setRecord(homeRecord, FIRST);
+      f = write('acct-login');
+      check('and keeps saying so for that session', f.account_source === 'changed', String(f.account_source));
+
+      // A record unreadable for a moment is no change of account.
+      setRecord(homeRecord, FIRST);
+      f = write('acct-blip');
+      fs.writeFileSync(homeRecord, '{ half written');
+      f = write('acct-blip');
+      check('a record unreadable for a moment keeps the account',
+        f.account_email === FIRST.emailAddress && f.account_source === 'folder', JSON.stringify(f.account_email));
+    } finally {
+      fs.rmSync(homeRecord, { force: true });
+    }
+  });
+
   // 27b. THE USER'S OWN STATUS-LINE TEXT (MC-7719). The bridge prints nothing of
   //      its own (MC-4957). An executable of the user's at
   //      ~/.claude/fuel-gauge/status-line is run after the session file is
