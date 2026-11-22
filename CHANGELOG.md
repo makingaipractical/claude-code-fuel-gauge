@@ -2,7 +2,7 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
-## Unreleased
+## v0.11.0
 
 - Before Brain Drain takes Claude Code's status line, it now offers once to install the Brain Drain mod instead, which feeds the gauge and leaves your status line alone. Asked only where Claude Code 2.1.327 or newer answers `claude --version` (the version the mod 0.4.0 was tested with), and never when the mod already writes or when you run Connect Status Line. **Install the mod** opens a terminal named Brain Drain that runs the two `claude plugin` commands where you can see them, and leaves `~/.claude/settings.json` untouched for a day; if the mod has not written by then, Brain Drain asks for the status line as before. **Use the status line** is the old path and is not asked again. Closing the message asks again next time.
 - Each session file the bridge writes names the account its 5-hour and weekly figures belong to: `account_uuid`, `account_email` and `account_source`. They come from the variables a host such as the Claude desktop app hands the session (`session`), else from the account named in the configuration folder's `.claude.json` (`folder`; its identity only, never the login). They are `null` when the account is not certain, and after a `/login` to another account on the same folder `account_source` reads `changed` for the rest of that session. Anything that reads several sessions' files no longer has to guess whose figures they are. The Brain Drain mod writes the same fields.
