@@ -12,7 +12,13 @@ const OUT = path.join(EXT_DIR, 'out', 'extension.js');
 
 let TMPROOT, answers, messages, settingsPath, globalStorage, configStore, bars, configListeners, outputLines;
 let outputChannelsCreated = 0;
-let shellStartListeners, shellEndListeners, folderChangeListeners;
+let shellStartListeners, shellEndListeners, folderChangeListeners, terminalsCreated;
+
+// The mod offer (#5948) asks `claude --version`. The machine's own claude must
+// not answer, so every folder on PATH that holds one is dropped, and a scenario
+// that wants a claude puts a fake one in <sandbox>/bin, which comes first.
+const PATH_WITHOUT_CLAUDE = (process.env.PATH || '').split(path.delimiter)
+  .filter((d) => d && !fs.existsSync(path.join(d, 'claude'))).join(path.delimiter);
 
 function makeVscode() {
   const cfg = {
@@ -50,6 +56,12 @@ function makeVscode() {
       showWarningMessage: async (m, ...rest) => { messages.push(['warn', m]); return answers.shift(); },
       showErrorMessage: async (m, ...rest) => { messages.push(['error', m]); return answers.shift(); },
       showTextDocument: async () => {},
+      createTerminal: (opts) => {
+        const t = { name: opts && opts.name, sent: [], shown: false,
+          show() { this.shown = true; }, sendText(s) { this.sent.push(s); }, dispose() {} };
+        terminalsCreated.push(t);
+        return t;
+      },
       onDidCloseTerminal: () => ({ dispose() {} }),
       onDidOpenTerminal: () => ({ dispose() {} }),
       onDidChangeActiveTerminal: () => ({ dispose() {} }),
@@ -134,6 +146,8 @@ fs.readdirSync = function (p, ...args) {
 function freshSandbox(name) {
   TMPROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'fg-' + name + '-'));
   process.env.HOME = TMPROOT;
+  process.env.PATH = path.join(TMPROOT, 'bin') + path.delimiter + PATH_WITHOUT_CLAUDE;
+  terminalsCreated = [];
   fs.mkdirSync(path.join(TMPROOT, '.claude'), { recursive: true });
   globalStorage = path.join(TMPROOT, 'globalStorage');
   settingsPath = path.join(TMPROOT, '.claude', 'settings.json');
@@ -2701,6 +2715,147 @@ async function run(name, fn) {
       check('without a session the weekly item exists but is hidden', !!wk && wk.visible === false);
       check('and the 5-hour item is hidden', byId(ID.usage5h).visible === false);
       end(ext);
+    });
+  }
+
+  // 40. THE MOD OFFER (#5948). Before the slot is taken, Brain Drain asks once
+  //     whether to install the mod instead, where Claude Code can run it.
+  {
+    const OFFER = 'Brain Drain can read your session through a Claude Code mod and leave your status line alone. Install it?';
+    const fakeClaude = (version) => {
+      const bin = path.join(TMPROOT, 'bin');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho "${version} (Claude Code)"\n`, { mode: 0o755 });
+    };
+    const until = async (cond, ms = 1500) => {
+      const t0 = Date.now();
+      while (!cond() && Date.now() - t0 < ms) { await new Promise((r) => setTimeout(r, 20)); }
+    };
+    const offered = () => messages.some((m) => m[1] === OFFER);
+    const ctxWith = (preset) => { const c = ctx(); for (const [k, v] of Object.entries(preset)) { c.globalState.update(k, v); } return c; };
+    const empty = () => fs.writeFileSync(settingsPath, JSON.stringify({ model: 'opus' }, null, 2) + '\n');
+    const settle = () => new Promise((r) => setTimeout(r, 150));
+
+    await run('mod-offer-install', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      answers = ['Install the mod'];
+      const c = ctx();
+      ext.activate(c);
+      await until(() => terminalsCreated.length > 0);
+      await settle();
+      check('the offer is shown, in the plan\'s one sentence', offered(), JSON.stringify(messages));
+      check('Install leaves settings.json without a status line', !readSettings().statusLine, JSON.stringify(readSettings()));
+      const t = terminalsCreated[0];
+      check('a visible terminal named Brain Drain opens', !!t && t.name === 'Brain Drain' && t.shown);
+      check('it runs the marketplace add and the install',
+        !!t && t.sent.length === 1 && t.sent[0] ===
+        'claude plugin marketplace add makingaipractical/brain-drain-for-claude-code && claude plugin install brain-drain@brain-drain',
+        t && JSON.stringify(t.sent));
+      check('the answer is kept, with its time',
+        c.globalState.get('fuel-gauge.modOffer') === 'Install the mod' && c.globalState.get('fuel-gauge.modOfferAt') > 0);
+      await registered['fuel-gauge.showBridgeStatus']();
+      check('Show Diagnostics says the slot is left alone for a day',
+        outputLines.some((l) => l.includes('left alone for a day after you chose to install the mod')), outputLines.join('\n'));
+    });
+
+    await run('mod-offer-use-status-line', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      answers = ['Use the status line'];
+      const c = ctx();
+      ext.activate(c);
+      await until(() => !!readSettings().statusLine);
+      check('Use the status line takes today\'s path', readSettings().statusLine && readSettings().statusLine.command === bridgePath());
+      check('no terminal', terminalsCreated.length === 0);
+      check('the answer is kept, so it is not asked again', c.globalState.get('fuel-gauge.modOffer') === 'Use the status line');
+    });
+
+    await run('mod-offer-use-status-line-foreign', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/ccstatusline' } }, null, 2) + '\n');
+      answers = ['Use the status line', 'Replace'];
+      ext.activate(ctx());
+      await until(() => readSettings().statusLine.command === bridgePath());
+      check('after the offer, the Replace dialog still comes in the same activation',
+        messages.some((m) => m[0] === 'warn') && readSettings().statusLine.command === bridgePath(), JSON.stringify(messages));
+    });
+
+    await run('mod-offer-dismissed', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      answers = [undefined];
+      const c = ctx();
+      ext.activate(c);
+      await until(offered);
+      await settle();
+      check('dismissing it takes nothing now', !readSettings().statusLine);
+      check('and keeps no answer, so it asks again next time', c.globalState.get('fuel-gauge.modOffer') === undefined);
+      check('no terminal', terminalsCreated.length === 0);
+    });
+
+    await run('mod-offer-not-for-old-claude', async (ext) => {
+      fakeClaude('2.1.326');
+      empty();
+      ext.activate(ctx());
+      await until(() => !!readSettings().statusLine);
+      check('Claude Code 2.1.326 gets no offer', !offered(), JSON.stringify(messages));
+      check('and today\'s connection', readSettings().statusLine && readSettings().statusLine.command === bridgePath());
+    });
+
+    await run('mod-offer-not-without-claude', async (ext) => {
+      empty();
+      ext.activate(ctx());
+      await until(() => !!readSettings().statusLine);
+      check('with no claude to ask, no offer and today\'s connection', !offered() && !!readSettings().statusLine);
+    });
+
+    await run('mod-offer-not-when-opted-out', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      configStore.manageStatusLine = false;
+      ext.activate(ctx());
+      await settle();
+      check('manageStatusLine false: no offer', !offered() && !readSettings().statusLine);
+    });
+
+    await run('mod-offer-not-when-mod-writes', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+      fs.mkdirSync(fgDir, { recursive: true });
+      fs.writeFileSync(path.join(fgDir, 'm.json'), JSON.stringify({ writer: 'mod', session_id: 'm', timestamp: Date.now() / 1000 }));
+      ext.activate(ctx());
+      await settle();
+      check('the mod already writing: no offer, slot untouched', !offered() && !readSettings().statusLine, JSON.stringify(messages));
+    });
+
+    await run('mod-offer-grace-holds', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      ext.activate(ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3600 * 1000 }));
+      await settle();
+      check('an hour after Install: no second offer, slot untouched', !offered() && !readSettings().statusLine);
+    });
+
+    await run('mod-offer-grace-expires', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      ext.activate(ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 25 * 3600 * 1000 }));
+      await until(() => !!readSettings().statusLine);
+      check('a day after Install with no mod file: today\'s connection, no second offer',
+        !offered() && readSettings().statusLine && readSettings().statusLine.command === bridgePath());
+    });
+
+    await run('mod-offer-not-on-connect', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      configStore.manageStatusLine = false;
+      ext.activate(ctx());
+      await settle();
+      await registered['fuel-gauge.setupStatusLine']();
+      await settle();
+      check('Connect Status Line connects without the offer', !offered() && !!readSettings().statusLine, JSON.stringify(messages));
     });
   }
 

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn, execFileSync } from 'child_process';
+import { spawn, execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 
 interface ContextStatus {
@@ -993,7 +993,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 // 'mod': the Brain Drain mod is writing the session files, so the extension
 // has no need of the status-line slot and does not ask for it (#4956).
-type StatusLineOwner = 'ours' | 'foreign' | 'optout' | 'mod' | 'unknown';
+// 'mod-installing': the user chose Install on the mod offer and the grace day
+// has not run out, so the slot is left alone while the mod gets going.
+type StatusLineOwner = 'ours' | 'foreign' | 'optout' | 'mod' | 'mod-installing' | 'unknown';
 
 interface StatusLineBackup {
   capturedAt: string;
@@ -1226,6 +1228,82 @@ function claimModalLock(context: vscode.ExtensionContext): boolean {
   return true;
 }
 
+// The one-click mod offer (MC-5948, agreed 25 Oct
+// 2026). Before Brain Drain takes Claude Code's status line it asks once
+// whether to install the Brain Drain mod instead, which feeds the gauge without
+// the slot. Asked only where the mod was tested (Claude Code 2.1.327 or newer, read
+// from `claude --version`); never when the user ran Connect, or when the mod
+// already writes. Install opens a visible terminal with the two plugin
+// commands, then leaves settings.json alone for a day: if the mod has not
+// written by then, the next activation takes today's path. "Use the status
+// line" is today's path and is never asked again. Dismissing it asks again at
+// the next activation and takes nothing now.
+const MOD_OFFER_KEY = 'fuel-gauge.modOffer';
+const MOD_OFFER_AT_KEY = 'fuel-gauge.modOfferAt';
+const MOD_GRACE_MS = 24 * 60 * 60 * 1000;
+const MOD_MIN_CLAUDE: readonly number[] = [2, 1, 327];
+const MOD_MARKETPLACE = 'makingaipractical/brain-drain-for-claude-code';
+const MOD_PLUGIN = 'brain-drain@brain-drain';
+const MOD_OFFER_TEXT =
+  'Brain Drain can read your session through a Claude Code mod and leave your status line alone. Install it?';
+const MOD_INSTALL = 'Install the mod';
+const MOD_USE_STATUS_LINE = 'Use the status line';
+
+/** `claude --version` as [major, minor, patch], or undefined when no claude answers within 3 s. */
+function readClaudeVersion(): Promise<number[] | undefined> {
+  const home = os.homedir();
+  const candidates = ['claude', path.join(home, '.local', 'bin', 'claude'), path.join(home, '.claude', 'local', 'claude')];
+  const tryOne = (i: number): Promise<number[] | undefined> => {
+    if (i >= candidates.length) { return Promise.resolve(undefined); }
+    return new Promise((resolve) => {
+      execFile(candidates[i], ['--version'], { timeout: 3000 }, (err, stdout) => {
+        const m = err ? null : /(\d+)\.(\d+)\.(\d+)/.exec(String(stdout));
+        if (m) { resolve([Number(m[1]), Number(m[2]), Number(m[3])]); }
+        else { resolve(tryOne(i + 1)); }
+      });
+    });
+  };
+  return tryOne(0);
+}
+
+function versionAtLeast(v: readonly number[], min: readonly number[]): boolean {
+  for (let i = 0; i < min.length; i++) {
+    const a = v[i] ?? 0;
+    const b = min[i] ?? 0;
+    if (a !== b) { return a > b; }
+  }
+  return true;
+}
+
+/** 'proceed': take today's path. 'proceed-locked': the same, and this window
+ *  already holds the dialog lock. 'leave': touch nothing this activation. */
+async function offerMod(context: vscode.ExtensionContext): Promise<'proceed' | 'proceed-locked' | 'leave'> {
+  const answer = context.globalState.get<string>(MOD_OFFER_KEY);
+  if (answer === MOD_USE_STATUS_LINE) { return 'proceed'; }
+  if (answer === MOD_INSTALL) {
+    const at = context.globalState.get<number>(MOD_OFFER_AT_KEY, 0) || 0;
+    return Date.now() - at < MOD_GRACE_MS ? 'leave' : 'proceed';
+  }
+  const version = await readClaudeVersion();
+  if (!version || !versionAtLeast(version, MOD_MIN_CLAUDE)) { return 'proceed'; }
+  if (!claimModalLock(context)) { return 'leave'; } // another window is asking
+
+  const choice = await vscode.window.showInformationMessage(MOD_OFFER_TEXT, MOD_INSTALL, MOD_USE_STATUS_LINE);
+  if (choice === undefined) { return 'leave'; }
+  await context.globalState.update(MOD_OFFER_KEY, choice);
+  if (choice === MOD_USE_STATUS_LINE) { return 'proceed-locked'; }
+
+  await context.globalState.update(MOD_OFFER_AT_KEY, Date.now());
+  const terminal = vscode.window.createTerminal({ name: 'Brain Drain' });
+  terminal.show();
+  terminal.sendText(`claude plugin marketplace add ${MOD_MARKETPLACE} && claude plugin install ${MOD_PLUGIN}`);
+  void vscode.window.showInformationMessage(
+    'Brain Drain: installing the mod in the Brain Drain terminal. Start a new Claude Code session ' +
+    'when it has finished, and the gauge reads it from there. Your status line is left alone.'
+  );
+  return 'leave';
+}
+
 // Steps 3-5: the only function permitted to write ~/.claude/settings.json.
 async function ensureStatusLineWired(context: vscode.ExtensionContext, force = false) {
   const { bridgePath, settingsPath } = claudePaths();
@@ -1268,6 +1346,18 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     return;
   }
 
+  let lockHeld = false;
+  if (!force) {
+    const offer = await offerMod(context);
+    if (offer === 'leave') {
+      const answer = context.globalState.get<string>(MOD_OFFER_KEY);
+      statusLineOwner = answer === MOD_INSTALL ? 'mod-installing' : 'unknown';
+      foreignCommand = state.command ?? null;
+      return;
+    }
+    lockHeld = offer === 'proceed-locked';
+  }
+
   if (state.owner === 'empty') {
     // An empty slot holds nothing that can be lost, so a failed backup does not
     // stop the connection here — it only costs the Undo, which needs a saved
@@ -1298,7 +1388,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   statusLineOwner = 'foreign';
   foreignCommand = state.command;
 
-  if (!force && !claimModalLock(context)) {
+  if (!force && !lockHeld && !claimModalLock(context)) {
     return; // Another window is already asking.
   }
 
@@ -1520,6 +1610,10 @@ function showBridgeStatus() {
   } else if (statusLineOwner === 'mod' && freshOwner !== 'ours') {
     add('Status line', 'left alone: the mod has written a session file in the last 36 hours, so Brain ' +
       'Drain did not ask for Claude Code\'s status line. Brain Drain: Connect Status Line takes it.');
+  } else if (statusLineOwner === 'mod-installing' && freshOwner !== 'ours') {
+    add('Status line', 'left alone for a day after you chose to install the mod; if the mod has not ' +
+      'written a session file by then, Brain Drain asks for the status line again. Brain Drain: ' +
+      'Connect Status Line takes it now.');
   }
 
   // Two settings switch a custom status line off without a word (#4946; the
@@ -2303,14 +2397,14 @@ function renderStatus() {
     : severityColor(contextSeverity);
   // A reading over an hour old loses its colour, and the hover says why
   // (MC-7517). Its likeliest cause: the user is in Anthropic's chat panel, which
-  // runs no status line, so the gauge still shows the folder's last terminal
-  // session while the panel shows its own. A clock time, not an age, keeps the
-  // hover the same from tick to tick. Revisit the wording when the mod that
-  // writes panel sessions is public (MC-6762).
+  // runs no status line, so without the mod the gauge still shows the folder's
+  // last terminal session while the panel shows its own. The mod writes a panel
+  // session's file from its 0.4.0 (MC-6762). A clock time, not an age, keeps
+  // the hover the same from tick to tick.
   const staleLine = fileAbandoned
     ? `<br>Last updated at ${formatClockTime(data.timestamp)}, over an hour ago. ` +
       "If you are working in Anthropic's chat panel, this reading is from an older session: " +
-      'a panel session writes nothing Brain Drain can read.'
+      'a panel session reaches Brain Drain only through the Brain Drain mod (0.4.0 or later).'
     : '';
   const contextLine = contextUnknown
     ? 'Context reading paused: Claude Code reports an empty window right after /compact. ' +

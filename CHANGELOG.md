@@ -2,6 +2,10 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
+## Unreleased
+
+- Before Brain Drain takes Claude Code's status line, it now offers once to install the Brain Drain mod instead, which feeds the gauge and leaves your status line alone. Asked only where Claude Code 2.1.327 or newer answers `claude --version` (the version the mod 0.4.0 was tested with), and never when the mod already writes or when you run Connect Status Line. **Install the mod** opens a terminal named Brain Drain that runs the two `claude plugin` commands where you can see them, and leaves `~/.claude/settings.json` untouched for a day; if the mod has not written by then, Brain Drain asks for the status line as before. **Use the status line** is the old path and is not asked again. Closing the message asks again next time.
+
 ## v0.10.2 — 2026-11-12
 
 - The cache countdown keeps a colour of its own. It used to take the context gauge's colour while time was comfortable, so a cache with 57 minutes left turned yellow as soon as the context passed your warning threshold. It is now green until its own steps: for the one-hour cache yellow from 25 minutes left and red from 5; for the five-minute cache yellow under a minute and red under 15 seconds, as before. `expired` stays red. `fuel-gauge.cacheWarningSeconds` still sets only the beep.
