@@ -3119,12 +3119,6 @@ async function run(name, fn) {
       return ws;
     };
 
-
-
-
-
-
-
     await run('ended-mod-session-keeps-sighting', async (ext) => {
       const ws = workDir();
       empty();

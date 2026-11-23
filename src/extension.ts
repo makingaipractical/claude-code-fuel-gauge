@@ -688,11 +688,6 @@ function newestModFile(folders: string[]): { folder: string; file: string; mtime
   return newest;
 }
 
-/** True when the mod has written to ~/.claude/fuel-gauge/ in the last 36 hours. */
-function modIsWriting(): boolean {
-  return newestModFile(['fuel-gauge']) !== undefined;
-}
-
 // Terminal Shell Integration tracking (VS Code 1.93+)
 let trackedSessionId: string | undefined;
 let trackedExecution: vscode.TerminalShellExecution | undefined;
@@ -1542,8 +1537,8 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     await config.update('manageStatusLine', false, vscode.ConfigurationTarget.Global);
     statusLineOwner = 'optout';
     void vscode.window.showInformationMessage(
-      'Brain Drain: leaving your status line alone. Set "fuel-gauge.manageStatusLine" to true, ' +
-      'or run "Brain Drain: Connect Status Line", if you change your mind.'
+      'Brain Drain: leaving your status line alone. Run "Brain Drain: Connect Status Line" ' +
+      'if you change your mind.'
     );
     return;
   }

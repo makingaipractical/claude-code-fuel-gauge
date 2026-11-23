@@ -4,7 +4,7 @@ All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gaug
 
 ## v0.11.1 — 2026-11-23
 
-- Once Brain Drain has seen the mod feeding the gauge in place of the status line, it no longer takes Claude Code's status line on its own when no session file of the mod's is left. Before, a VS Code start with no recent mod file connected an empty slot to the bridge, or asked to replace your own status line. Brain Drain deletes a session's file when the session ends, so this could happen minutes after a mod session, not only after a weekend away. Brain Drain now notes the mod whenever it sees one of its session files, including just before it deletes the file of a session that ended. Show Diagnostics says why the slot is left alone and when the mod was last noted; **Connect Status Line** connects the bridge if you removed the mod.
+- Once Brain Drain has seen the mod feeding the gauge in place of the status line, it no longer takes Claude Code's status line on its own when no session file of the mod's is left. Before, a VS Code start with no recent mod file connected an empty slot to the bridge, or asked to replace your own status line. Brain Drain deletes a session's file when the session ends, so this could happen minutes after a mod session, not only after a weekend away. Brain Drain now notes the mod whenever it shows one of its sessions, and just before it deletes the file of a session that ended. After **Not now** on the replace question, the message now names only **Connect Status Line** to change your mind. Show Diagnostics says why the slot is left alone and when the mod was last noted; **Connect Status Line** connects the bridge if you removed the mod.
 
 ## v0.11.0 — 2026-11-22
 
