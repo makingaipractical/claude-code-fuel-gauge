@@ -3043,7 +3043,7 @@ async function run(name, fn) {
       await registered['fuel-gauge.showBridgeStatus']();
       const report = outputLines.join('\n');
       check('Show Diagnostics says why and names Connect Status Line',
-        /last seen 3 days ago/.test(report) && /Connect Status Line connects the bridge/.test(report), report);
+        /last noted 3 days ago/.test(report) && /Connect Status Line connects the bridge/.test(report), report);
     });
 
     await run('mod-quiet-keeps-foreign-slot', async (ext) => {
@@ -3095,6 +3095,125 @@ async function run(name, fn) {
       await settle();
       check('Connect, then a scan that finds an old mod file: the sighting stays cleared',
         readSettings().statusLine && readSettings().statusLine.command === bridgePath() && c.globalState.get(SEEN) === undefined);
+    });
+
+    // From the review of 23 Nov (MC-8383).
+    const MIGRATED = 'fuel-gauge.modSeenMigrated';
+    const sessionFile = (ws, id, extra) => {
+      const nowSec = Date.now() / 1000;
+      const dir = path.join(TMPROOT, '.claude', extra && extra.folder || 'fuel-gauge');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, id + '.json');
+      fs.writeFileSync(file, JSON.stringify({
+        cwd: ws, project_dir: ws, used_percentage: 12, remaining_percentage: 88,
+        total_input_tokens: 24000, total_output_tokens: 300, context_window_size: 200000,
+        model: 'claude-opus-5', session_id: id, timestamp: nowSec, detected_ttl: 3600,
+        last_api_call_ts: nowSec - 30, rate_limit_5h_pct: -1, rate_limit_7d_pct: -1,
+        effort_level: 'high', context_unknown: false, writer: 'mod',
+      }, null, 2));
+      return file;
+    };
+    const workDir = () => {
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      return ws;
+    };
+
+    // An upgrader from 0.11.0: no sighting was ever kept, and 0.11.0 deleted the
+    // mod's file when its session ended. The mod enabled in settings.json counts.
+    await run('upgrade-mod-enabled-keeps-slot', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
+      const c = ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3 * 86400000 });
+      ext.activate(c);
+      await settle();
+      check('upgrader with the mod enabled and no mod file: slot untouched, no offer, no toast, sighting kept',
+        !readSettings().statusLine && !offered() && !messages.some((m) => /status line connected/.test(m[1]))
+          && c.globalState.get(SEEN) > 0 && c.globalState.get(MIGRATED) === true, JSON.stringify(messages));
+    });
+
+    await run('upgrade-check-runs-once', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
+      const c = ctxWith({ [MIGRATED]: true });
+      ext.activate(c);
+      await until(() => messages.length > 0);
+      check('after the one-time check, an enabled plugin alone is not a sighting (Connect cleared it, say)',
+        c.globalState.get(SEEN) === undefined && offered(), JSON.stringify(messages));
+    });
+
+    await run('ended-mod-session-keeps-sighting', async (ext) => {
+      const ws = workDir();
+      empty();
+      const old = Date.now() - 3 * 86400000;
+      const c = ctxWith({ [SEEN]: old, [MIGRATED]: true });
+      ext.activate(c);
+      await settle();
+      const event = fireClaudeStart(ws);
+      const file = sessionFile(ws, 'live');
+      fireConfigChange();
+      await settle();
+      // The scan has checked once and will not again within the hour; put the
+      // old value back, so only the end of the session can move it.
+      await c.globalState.update(SEEN, old);
+      fireExecutionEnd(event);
+      await settle();
+      check('the session ends and its mod file is deleted: the sighting is kept first',
+        !fs.existsSync(file) && c.globalState.get(SEEN) > Date.now() - 60000);
+    });
+
+    await run('connect-clears-before-toast', async (ext) => {
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000, [MIGRATED]: true });
+      ext.activate(c);
+      await settle();
+      answers = [() => new Promise(() => {})];
+      void registered['fuel-gauge.setupStatusLine']();
+      await settle();
+      check('Connect on an empty slot, the Undo toast never answered: the sighting is already cleared',
+        readSettings().statusLine && readSettings().statusLine.command === bridgePath() && c.globalState.get(SEEN) === undefined);
+    });
+
+    await run('mod-copy-beside-bridge-no-sighting', async (ext) => {
+      const ws = workDir();
+      fs.mkdirSync(path.join(TMPROOT, '.claude', 'scripts'), { recursive: true });
+      fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2) + '\n');
+      configStore['manageStatusLine'] = false;
+      const c = ctxWith({ [MIGRATED]: true });
+      ext.activate(c);
+      await settle();
+      sessionFile(ws, 'panel', { folder: 'fuel-gauge-mod' });
+      fireConfigChange();
+      await settle();
+      check('opted out, bridge in the slot, a panel session in fuel-gauge-mod/: no sighting',
+        c.globalState.get(SEEN) === undefined);
+    });
+
+    await run('mod-quiet-then-writes-diagnostics', async (ext) => {
+      const ws = workDir();
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 3 * 86400000, [MIGRATED]: true });
+      ext.activate(c);
+      await settle();
+      sessionFile(ws, 'monday');
+      fireConfigChange();
+      await settle();
+      outputLines.length = 0;
+      await registered['fuel-gauge.showBridgeStatus']();
+      const report = outputLines.join('\n');
+      check('the mod writes again in this window: Show Diagnostics no longer suggests it was removed',
+        !/If you removed the mod/.test(report) && /has written a session file in the last 36 hours/.test(report), report);
+    });
+
+    await run('mod-quiet-age-in-minutes', async (ext) => {
+      empty();
+      ext.activate(ctxWith({ [SEEN]: Date.now() - 5 * 60000, [MIGRATED]: true }));
+      await settle();
+      outputLines.length = 0;
+      await registered['fuel-gauge.showBridgeStatus']();
+      const report = outputLines.join('\n');
+      check('a sighting five minutes old reads "5 min ago", not "1 day"', /last noted 5 min ago/.test(report), report);
     });
 
     await run('mod-quiet-cancelled-replace-keeps-mark', async (ext) => {

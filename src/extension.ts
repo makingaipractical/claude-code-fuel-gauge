@@ -766,6 +766,9 @@ function markEnded(sessionId: string) {
 function clearTracking() {
   if (trackedSessionId) {
     markEnded(trackedSessionId);
+    // A mod file is the only sign the mod fed the gauge; keep the sighting
+    // before it goes (MC-8383, review of 23 Nov).
+    noteModFile(trackedSessionId, true);
     const filePath = path.join(os.homedir(), '.claude', 'fuel-gauge', `${trackedSessionId}.json`);
     try { fs.unlinkSync(filePath); } catch { /* already gone */ }
   }
@@ -1045,10 +1048,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('fuel-gauge.setupStatusLine', () =>
-      ensureStatusLineWired(context, true).then(async () => {
-        // The user asked for the bridge: the mod no longer holds the slot (MC-8383).
-        if (statusLineOwner === 'ours') { await context.globalState.update(MOD_SEEN_KEY, undefined); }
-      })
+      ensureStatusLineWired(context, true)
     ),
     vscode.commands.registerCommand('fuel-gauge.restoreStatusLine', () =>
       restoreStatusLine(context)
@@ -1070,8 +1070,8 @@ export function activate(context: vscode.ExtensionContext) {
 // has no need of the status-line slot and does not ask for it (#4956).
 // 'mod-installing': the user chose Install on the mod offer and the grace day
 // has not run out, so the slot is left alone while the mod gets going.
-// 'mod-quiet': the mod has written here before but not in the last 36 hours (a
-// weekend away, say). The slot stays the mod's: Brain Drain never connects it on
+// 'mod-quiet': the mod has fed the gauge here before, but no session file of its is
+// left (a weekend away, or a session that ended). The slot stays the mod's: Brain Drain never connects it on
 // its own again, and Show Diagnostics names Connect Status Line (MC-8383).
 type StatusLineOwner = 'ours' | 'foreign' | 'optout' | 'mod' | 'mod-installing' | 'mod-quiet' | 'unknown';
 
@@ -1084,8 +1084,6 @@ interface StatusLineBackup {
 
 let statusLineOwner: StatusLineOwner = 'unknown';
 let foreignCommand: string | null = null;
-/** For Show Diagnostics while the owner is 'mod-quiet': when the mod was last seen writing (ms). */
-let modLastSeenMs = 0;
 
 function claudePaths() {
   const claudeDir = path.join(os.homedir(), '.claude');
@@ -1323,6 +1321,10 @@ const MOD_OFFER_AT_KEY = 'fuel-gauge.modOfferAt';
 // When the mod was last seen writing the session files here (ms). Set whenever
 // it is; cleared by Connect Status Line, the user's word that the bridge is wanted.
 const MOD_SEEN_KEY = 'fuel-gauge.modSeenAt';
+// Set once the one-time check for upgraders from 0.11.0 has run (MC-8383): that
+// version kept no sighting, and deletes a mod file when its session ends, so its
+// users would otherwise lose the slot on their first start of the new version.
+const MOD_SEEN_MIGRATED_KEY = 'fuel-gauge.modSeenMigrated';
 const MOD_GRACE_MS = 24 * 60 * 60 * 1000;
 const MOD_MIN_CLAUDE: readonly number[] = [2, 1, 327];
 const MOD_MARKETPLACE = 'makingaipractical/brain-drain-for-claude-code';
@@ -1437,19 +1439,32 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   if (force) {
     // Connect Status Line: the mark is cleared by the command once the slot is
     // ours (setupStatusLine below), not here, so a cancelled Replace keeps it.
-  } else if (modIsWriting()) {
-    await context.globalState.update(MOD_SEEN_KEY, Date.now());
-    statusLineOwner = 'mod';
-    foreignCommand = state.command ?? null;
-    return;
-  } else if (context.globalState.get<number>(MOD_SEEN_KEY)) {
-    // The mod fed the gauge here before and has been quiet for over 36 hours.
-    // Taking the slot now would go against the offer's own words ("leave your
-    // status line alone"), so it stays the mod's (MC-8383).
-    statusLineOwner = 'mod-quiet';
-    modLastSeenMs = context.globalState.get<number>(MOD_SEEN_KEY, 0) || 0;
-    foreignCommand = state.command ?? null;
-    return;
+  } else {
+    if (!context.globalState.get<boolean>(MOD_SEEN_MIGRATED_KEY)) {
+      // Once only: an upgrader from 0.11.0 has no sighting stored. The mod
+      // enabled in settings.json, with the slot not the bridge's, means the mod
+      // feeds the gauge here (it writes fuel-gauge/ whenever the bridge is not
+      // the status line).
+      await context.globalState.update(MOD_SEEN_MIGRATED_KEY, true);
+      if (!context.globalState.get<number>(MOD_SEEN_KEY) && modPluginEnabled(settings)) {
+        await context.globalState.update(MOD_SEEN_KEY, Date.now());
+      }
+    }
+    const writing = newestModFile(['fuel-gauge']);
+    if (writing) {
+      await recordModSighting(writing.mtimeMs, true);
+      statusLineOwner = 'mod';
+      foreignCommand = state.command ?? null;
+      return;
+    }
+    if (context.globalState.get<number>(MOD_SEEN_KEY)) {
+      // The mod fed the gauge here before and no session file of its is left.
+      // Taking the slot now would go against the offer's own words ("leave your
+      // status line alone"), so it stays the mod's (MC-8383).
+      statusLineOwner = 'mod-quiet';
+      foreignCommand = state.command ?? null;
+      return;
+    }
   }
 
   let lockHeld = false;
@@ -1488,6 +1503,9 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
       return;
     }
     statusLineOwner = 'ours';
+    // The bridge holds the slot now, so the mod no longer does. Cleared before
+    // the toast, which can stay unanswered for the rest of the session.
+    await context.globalState.update(MOD_SEEN_KEY, undefined);
     if (!backedUp) {
       void vscode.window.showInformationMessage(
         'Brain Drain: status line connected. Restart Claude Code to see context usage.'
@@ -1576,6 +1594,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   }
   statusLineOwner = 'ours';
   foreignCommand = null;
+  await context.globalState.update(MOD_SEEN_KEY, undefined);
   void vscode.window.showInformationMessage(
     'Brain Drain: status line connected. Restart Claude Code to see context usage.'
   );
@@ -1728,7 +1747,8 @@ function showBridgeStatus() {
   if (freshOwner === 'ours' && newestModFile(['fuel-gauge-mod'])) {
     add('Status line', 'the mod is writing, so the bridge is not needed: Brain Drain: Restore Previous ' +
       'Status Line gives your own status line back, and the mod then feeds the gauge.');
-  } else if (statusLineOwner === 'mod' && freshOwner !== 'ours') {
+  } else if ((statusLineOwner === 'mod' || (statusLineOwner === 'mod-quiet' && newestModFile(['fuel-gauge'])))
+    && freshOwner !== 'ours') {
     add('Status line', 'left alone: the mod has written a session file in the last 36 hours, so Brain ' +
       'Drain did not ask for Claude Code\'s status line. Brain Drain: Connect Status Line takes it.');
   } else if (statusLineOwner === 'mod-installing' && freshOwner !== 'ours') {
@@ -1736,9 +1756,9 @@ function showBridgeStatus() {
       'written a session file by then, Brain Drain asks for the status line again. Brain Drain: ' +
       'Connect Status Line takes it now.');
   } else if (statusLineOwner === 'mod-quiet' && freshOwner !== 'ours') {
-    const days = Math.max(1, Math.round((Date.now() - modLastSeenMs) / 86400000));
-    add('Status line', `left alone: the mod fed the gauge here before (last seen ${days} day${days === 1 ? '' : 's'} ` +
-      'ago), so Brain Drain does not take Claude Code\'s status line on its own. If you removed the mod, ' +
+    const seen = modSeenStore?.get<number>(MOD_SEEN_KEY, 0) || 0;
+    add('Status line', `left alone: the mod fed the gauge here before (last noted ${seen ? ago(seen) : 'earlier'}), ` +
+      'so Brain Drain does not take Claude Code\'s status line on its own. If you removed the mod, ' +
       'Brain Drain: Connect Status Line connects the bridge instead.');
   }
 
@@ -2105,17 +2125,63 @@ function findMatchingSession(): ContextStatus | undefined {
 /** Keeps the mod's sighting (MOD_SEEN_KEY) from the regular scan too, not only
  *  at activation: a mod that starts writing after this window opened would
  *  otherwise go unrecorded, and the next start after a long break would take
- *  the slot (MC-8383). Written at most once an hour. */
+ *  the slot (MC-8383). The scan checks at most once an hour. */
 let modSeenStore: vscode.Memento | undefined;
+let lastModCheckMs = 0;
 function noteModSighting(found: unknown) {
-  if (!modSeenStore || !found || (found as { writer?: unknown }).writer !== 'mod') { return; }
-  // While the bridge holds the slot, a mod file here is left over from before
-  // Connect (the mod writes elsewhere then), not a sign the mod holds the slot.
-  if (statusLineOwner === 'ours') { return; }
-  const now = Date.now();
+  if (!modSeenStore || !found) { return; }
+  const f = found as { writer?: unknown; session_id?: unknown };
+  if (f.writer !== 'mod' || typeof f.session_id !== 'string') { return; }
+  if (Date.now() - lastModCheckMs < 60 * 60 * 1000) { return; }
+  lastModCheckMs = Date.now();
+  noteModFile(f.session_id, false);
+}
+
+/** Records a sighting when ~/.claude/fuel-gauge/<session>.json was written by
+ *  the mod and settings.json, read now, shows the slot is not the bridge's. The
+ *  mod writes that folder only then; a copy in fuel-gauge-mod/, or one left over
+ *  from before Connect, says nothing about who holds the slot. The fresh read
+ *  stands in for the in-memory owner, which another window can make stale. */
+function noteModFile(sessionId: string, always: boolean) {
+  if (!modSeenStore) { return; }
+  let data: { writer?: unknown; timestamp?: unknown };
+  try {
+    data = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'fuel-gauge', `${sessionId}.json`), 'utf-8'));
+  } catch { return; }
+  if (!data || data.writer !== 'mod' || typeof data.timestamp !== 'number') { return; }
+  const read = readSettings();
+  if (read.kind === 'unreadable') { return; }
+  const owner = classifyStatusLine(read.kind === 'ok' ? read.settings : {}, claudePaths().bridgePath).owner;
+  if (owner === 'ours') { return; }
+  void recordModSighting(data.timestamp * 1000, always);
+  if (statusLineOwner === 'mod-quiet') { statusLineOwner = 'mod'; }
+}
+
+/** Stores when the mod last wrote (ms, the file's own time). Unless `always`,
+ *  only when that is an hour or more past the stored time, to spare writes. */
+async function recordModSighting(atMs: number, always: boolean) {
+  if (!modSeenStore) { return; }
   const last = modSeenStore.get<number>(MOD_SEEN_KEY, 0) || 0;
-  if (now - last < 60 * 60 * 1000) { return; }
-  void modSeenStore.update(MOD_SEEN_KEY, now);
+  if (atMs <= last || (!always && atMs - last < 60 * 60 * 1000)) { return; }
+  await modSeenStore.update(MOD_SEEN_KEY, atMs);
+}
+
+/** True when settings.json enables the Brain Drain mod under any marketplace
+ *  (`brain-drain@brain-drain`, a local copy's `brain-drain@<other>`). */
+function modPluginEnabled(settings: Record<string, unknown>): boolean {
+  const plugins = settings.enabledPlugins;
+  if (!plugins || typeof plugins !== 'object') { return false; }
+  return Object.entries(plugins as Record<string, unknown>).some(([k, v]) => k.startsWith('brain-drain@') && v === true);
+}
+
+/** "5 min ago", "3 hours ago", "2 days ago". */
+function ago(ms: number): string {
+  const min = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  if (min < 60) { return `${min} min ago`; }
+  const hours = Math.round(min / 60);
+  if (hours < 24) { return `${hours} hour${hours === 1 ? '' : 's'} ago`; }
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 function updateStatus() {
