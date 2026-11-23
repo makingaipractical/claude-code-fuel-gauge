@@ -2976,6 +2976,110 @@ async function run(name, fn) {
       await settle();
       check('Connect Status Line connects without the offer', !offered() && !!readSettings().statusLine, JSON.stringify(messages));
     });
+
+    // 41. AFTER A BREAK (MC-8383). Once the mod has been seen writing here, a
+    //     quiet spell of over 36 hours does not hand the slot to the bridge.
+    const modFile = () => {
+      const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+      fs.mkdirSync(fgDir, { recursive: true });
+      fs.writeFileSync(path.join(fgDir, 'm.json'), JSON.stringify({ writer: 'mod', session_id: 'm', timestamp: Date.now() / 1000 }));
+    };
+    const SEEN = 'fuel-gauge.modSeenAt';
+
+    await run('mod-seen-is-recorded', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      modFile();
+      const c = ctx();
+      ext.activate(c);
+      await settle();
+      check('the mod writing: its sighting is kept', c.globalState.get(SEEN) > 0 && !readSettings().statusLine);
+    });
+
+    // The ticket's own case: Install, the window stays open while the mod starts
+    // writing, VS Code closes that evening and opens again after the weekend.
+    await run('mod-seen-by-scan-then-weekend', async (ext) => {
+      fakeClaude('2.1.330');
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      empty();
+      const c = ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3600 * 1000 });
+      ext.activate(c);
+      await settle();
+      check('inside the grace day nothing is recorded yet', c.globalState.get(SEEN) === undefined && !readSettings().statusLine);
+      const nowSec = Date.now() / 1000;
+      const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+      fs.mkdirSync(fgDir, { recursive: true });
+      const file = path.join(fgDir, 'friday.json');
+      fs.writeFileSync(file, JSON.stringify({
+        cwd: ws, project_dir: ws, used_percentage: 12, remaining_percentage: 88,
+        total_input_tokens: 24000, total_output_tokens: 300, context_window_size: 200000,
+        model: 'claude-opus-5', session_id: 'friday', timestamp: nowSec, detected_ttl: 3600,
+        last_api_call_ts: nowSec - 30, rate_limit_5h_pct: -1, rate_limit_7d_pct: -1,
+        effort_level: 'high', context_unknown: false, writer: 'mod',
+      }, null, 2));
+      fireConfigChange();
+      await settle();
+      check('the scan sees the mod writing and records it', c.globalState.get(SEEN) > 0);
+      if (typeof ext.deactivate === 'function') { ext.deactivate(); }
+      fs.rmSync(file);
+      await c.globalState.update('fuel-gauge.modOfferAt', Date.now() - 3 * 86400000);
+      messages.length = 0;
+      ext.activate(c);
+      await until(() => messages.length > 0);
+      check('Monday, grace long over and no mod file: the slot is left alone, no toast',
+        !readSettings().statusLine && !messages.some((m) => /status line connected/.test(m[1])), JSON.stringify(messages));
+    });
+
+    await run('mod-quiet-keeps-empty-slot', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      ext.activate(ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3 * 86400000, [SEEN]: Date.now() - 3 * 86400000 }));
+      await settle();
+      check('three days after the mod last wrote: slot untouched, no offer, no toast',
+        !readSettings().statusLine && !offered() && !messages.some((m) => /status line connected/.test(m[1])), JSON.stringify(messages));
+      outputLines.length = 0;
+      await registered['fuel-gauge.showBridgeStatus']();
+      const report = outputLines.join('\n');
+      check('Show Diagnostics says why and names Connect Status Line',
+        /last seen 3 days ago/.test(report) && /Connect Status Line connects the bridge/.test(report), report);
+    });
+
+    await run('mod-quiet-keeps-foreign-slot', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: '/x/mine.sh' } }, null, 2) + '\n');
+      ext.activate(ctxWith({ [SEEN]: Date.now() - 2 * 86400000 }));
+      // The offer waits on `claude --version`, so give it the time it would take.
+      await until(() => messages.length > 0);
+      check('a mod installed by hand, quiet for two days: no offer, no Replace dialog, the user\'s command kept',
+        readSettings().statusLine.command === '/x/mine.sh' && !offered() && !messages.some((m) => /already in use/.test(m[1])), JSON.stringify(messages));
+    });
+
+    await run('mod-quiet-connect-clears', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000 });
+      ext.activate(c);
+      await settle();
+      await registered['fuel-gauge.setupStatusLine']();
+      await settle();
+      check('Connect Status Line connects the bridge and forgets the sighting',
+        readSettings().statusLine && readSettings().statusLine.command === bridgePath() && c.globalState.get(SEEN) === undefined);
+    });
+
+    await run('mod-quiet-cancelled-replace-keeps-mark', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: '/x/mine.sh' } }, null, 2) + '\n');
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000 });
+      ext.activate(c);
+      await settle();
+      answers = [undefined];
+      await registered['fuel-gauge.setupStatusLine']();
+      await settle();
+      check('Connect, then Escape on Replace: slot kept and the sighting kept',
+        readSettings().statusLine.command === '/x/mine.sh' && c.globalState.get(SEEN) > 0);
+    });
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

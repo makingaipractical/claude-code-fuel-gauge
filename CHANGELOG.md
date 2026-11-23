@@ -2,6 +2,10 @@
 
 All notable changes to Brain Drain for Claude Code (called Claude Code Fuel Gauge up to v0.9.1).
 
+## Unreleased
+
+- Once Brain Drain has seen the mod feeding the gauge in place of the status line, it no longer takes Claude Code's status line on its own when the mod has been quiet for more than 36 hours (after a weekend away, say). Before, the next VS Code start connected an empty slot to the bridge, or asked to replace your own status line. Show Diagnostics says why the slot is left alone; **Connect Status Line** connects the bridge if you removed the mod.
+
 ## v0.11.0 — 2026-11-22
 
 - Before Brain Drain takes Claude Code's status line, it now offers once to install the Brain Drain mod instead, which feeds the gauge and leaves your status line alone. Asked only where Claude Code 2.1.327 or newer answers `claude --version` (the version the mod 0.4.0 was tested with), and never when the mod already writes or when you run Connect Status Line. **Install the mod** opens a terminal named Brain Drain that runs the two `claude plugin` commands where you can see them, and Brain Drain writes nothing to `~/.claude/settings.json` for a day (Claude Code's plugin commands record the mod there themselves); if the mod has not written by then, Brain Drain asks for the status line as before. **Use the status line** is the old path and is not asked again. Closing the message asks again next time. Not offered on Windows.
