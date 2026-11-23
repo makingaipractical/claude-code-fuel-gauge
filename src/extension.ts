@@ -2109,6 +2109,9 @@ function findMatchingSession(): ContextStatus | undefined {
 let modSeenStore: vscode.Memento | undefined;
 function noteModSighting(found: unknown) {
   if (!modSeenStore || !found || (found as { writer?: unknown }).writer !== 'mod') { return; }
+  // While the bridge holds the slot, a mod file here is left over from before
+  // Connect (the mod writes elsewhere then), not a sign the mod holds the slot.
+  if (statusLineOwner === 'ours') { return; }
   const now = Date.now();
   const last = modSeenStore.get<number>(MOD_SEEN_KEY, 0) || 0;
   if (now - last < 60 * 60 * 1000) { return; }

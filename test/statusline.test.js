@@ -3068,6 +3068,35 @@ async function run(name, fn) {
         readSettings().statusLine && readSettings().statusLine.command === bridgePath() && c.globalState.get(SEEN) === undefined);
     });
 
+    // After Connect, the scan still finds the mod's old file for this folder until
+    // the bridge writes. It must not record the mod again (review of 23 Nov).
+    await run('mod-quiet-connect-then-scan-stays-cleared', async (ext) => {
+      fakeClaude('2.1.330');
+      const ws = path.join(TMPROOT, 'work');
+      fs.mkdirSync(ws, { recursive: true });
+      global.__vscode.workspace.workspaceFolders = [{ uri: { fsPath: ws, path: ws } }];
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000 });
+      ext.activate(c);
+      await settle();
+      await registered['fuel-gauge.setupStatusLine']();
+      await settle();
+      const nowSec = Date.now() / 1000;
+      const fgDir = path.join(TMPROOT, '.claude', 'fuel-gauge');
+      fs.mkdirSync(fgDir, { recursive: true });
+      fs.writeFileSync(path.join(fgDir, 'old.json'), JSON.stringify({
+        cwd: ws, project_dir: ws, used_percentage: 12, remaining_percentage: 88,
+        total_input_tokens: 24000, total_output_tokens: 300, context_window_size: 200000,
+        model: 'claude-opus-5', session_id: 'old', timestamp: nowSec, detected_ttl: 3600,
+        last_api_call_ts: nowSec - 30, rate_limit_5h_pct: -1, rate_limit_7d_pct: -1,
+        effort_level: 'high', context_unknown: false, writer: 'mod',
+      }, null, 2));
+      fireConfigChange();
+      await settle();
+      check('Connect, then a scan that finds an old mod file: the sighting stays cleared',
+        readSettings().statusLine && readSettings().statusLine.command === bridgePath() && c.globalState.get(SEEN) === undefined);
+    });
+
     await run('mod-quiet-cancelled-replace-keeps-mark', async (ext) => {
       fakeClaude('2.1.330');
       fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: '/x/mine.sh' } }, null, 2) + '\n');
