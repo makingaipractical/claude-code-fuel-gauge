@@ -1325,6 +1325,11 @@ const MOD_SEEN_KEY = 'fuel-gauge.modSeenAt';
 // version kept no sighting, and deletes a mod file when its session ends, so its
 // users would otherwise lose the slot on their first start of the new version.
 const MOD_SEEN_MIGRATED_KEY = 'fuel-gauge.modSeenMigrated';
+// Set while the sighting came from that check alone, with no mod file seen yet.
+// Cleared by a real sighting; without one it lapses after MOD_PROVISIONAL_MS, so
+// a mod that is turned on but never writes does not keep the gauge dark for good.
+const MOD_SEEN_PROVISIONAL_KEY = 'fuel-gauge.modSeenProvisional';
+const MOD_PROVISIONAL_MS = 7 * 24 * 60 * 60 * 1000;
 const MOD_GRACE_MS = 24 * 60 * 60 * 1000;
 const MOD_MIN_CLAUDE: readonly number[] = [2, 1, 327];
 const MOD_MARKETPLACE = 'makingaipractical/brain-drain-for-claude-code';
@@ -1437,19 +1442,10 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   // The mod already feeds the gauge, so taking the user's status line would buy
   // nothing (mod research, A6 item 3). Connect still works when asked for.
   if (force) {
-    // Connect Status Line: the mark is cleared by the command once the slot is
-    // ours (setupStatusLine below), not here, so a cancelled Replace keeps it.
+    // Connect Status Line: the mark is cleared below once the bridge is
+    // written, not here, so a cancelled Replace keeps it.
   } else {
-    if (!context.globalState.get<boolean>(MOD_SEEN_MIGRATED_KEY)) {
-      // Once only: an upgrader from 0.11.0 has no sighting stored. The mod
-      // enabled in settings.json, with the slot not the bridge's, means the mod
-      // feeds the gauge here (it writes fuel-gauge/ whenever the bridge is not
-      // the status line).
-      await context.globalState.update(MOD_SEEN_MIGRATED_KEY, true);
-      if (!context.globalState.get<number>(MOD_SEEN_KEY) && modPluginEnabled(settings)) {
-        await context.globalState.update(MOD_SEEN_KEY, Date.now());
-      }
-    }
+    await checkModOnceForUpgrade(context, settings);
     const writing = newestModFile(['fuel-gauge']);
     if (writing) {
       await recordModSighting(writing.mtimeMs, true);
@@ -1457,7 +1453,13 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
       foreignCommand = state.command ?? null;
       return;
     }
-    if (context.globalState.get<number>(MOD_SEEN_KEY)) {
+    const seenAt = context.globalState.get<number>(MOD_SEEN_KEY, 0) || 0;
+    if (seenAt && context.globalState.get<boolean>(MOD_SEEN_PROVISIONAL_KEY)
+      && Date.now() - seenAt > MOD_PROVISIONAL_MS) {
+      // Turned on, but not one session file in a week: take today's path.
+      await context.globalState.update(MOD_SEEN_KEY, undefined);
+      await context.globalState.update(MOD_SEEN_PROVISIONAL_KEY, undefined);
+    } else if (seenAt) {
       // The mod fed the gauge here before and no session file of its is left.
       // Taking the slot now would go against the offer's own words ("leave your
       // status line alone"), so it stays the mod's (MC-8383).
@@ -1505,7 +1507,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
     statusLineOwner = 'ours';
     // The bridge holds the slot now, so the mod no longer does. Cleared before
     // the toast, which can stay unanswered for the rest of the session.
-    await context.globalState.update(MOD_SEEN_KEY, undefined);
+    await forgetModSighting(context);
     if (!backedUp) {
       void vscode.window.showInformationMessage(
         'Brain Drain: status line connected. Restart Claude Code to see context usage.'
@@ -1594,7 +1596,7 @@ async function ensureStatusLineWired(context: vscode.ExtensionContext, force = f
   }
   statusLineOwner = 'ours';
   foreignCommand = null;
-  await context.globalState.update(MOD_SEEN_KEY, undefined);
+  await forgetModSighting(context);
   void vscode.window.showInformationMessage(
     'Brain Drain: status line connected. Restart Claude Code to see context usage.'
   );
@@ -1755,6 +1757,13 @@ function showBridgeStatus() {
     add('Status line', 'left alone for a day after you chose to install the mod; if the mod has not ' +
       'written a session file by then, Brain Drain asks for the status line again. Brain Drain: ' +
       'Connect Status Line takes it now.');
+  } else if (statusLineOwner === 'mod-quiet' && freshOwner !== 'ours'
+    && modSeenStore?.get<boolean>(MOD_SEEN_PROVISIONAL_KEY)) {
+    const seen = modSeenStore.get<number>(MOD_SEEN_KEY, 0) || 0;
+    add('Status line', 'left alone: the mod is turned on in settings.json (enabledPlugins), and Brain Drain ' +
+      'has not yet seen it write a session file. If it has not by ' +
+      `${new Date(seen + MOD_PROVISIONAL_MS).toLocaleDateString()}, Brain Drain asks for the status line as before. ` +
+      'Brain Drain: Connect Status Line connects the bridge now.');
   } else if (statusLineOwner === 'mod-quiet' && freshOwner !== 'ours') {
     const seen = modSeenStore?.get<number>(MOD_SEEN_KEY, 0) || 0;
     add('Status line', `left alone: the mod fed the gauge here before (last noted ${seen ? ago(seen) : 'earlier'}), ` +
@@ -2161,9 +2170,43 @@ function noteModFile(sessionId: string, always: boolean) {
  *  only when that is an hour or more past the stored time, to spare writes. */
 async function recordModSighting(atMs: number, always: boolean) {
   if (!modSeenStore) { return; }
+  atMs = Math.min(atMs, Date.now()); // a file stamped in the future
+  if (modSeenStore.get<boolean>(MOD_SEEN_PROVISIONAL_KEY)) {
+    // A real file confirms the one-time check's guess, with its own time.
+    await modSeenStore.update(MOD_SEEN_PROVISIONAL_KEY, undefined);
+    await modSeenStore.update(MOD_SEEN_KEY, atMs);
+    return;
+  }
   const last = modSeenStore.get<number>(MOD_SEEN_KEY, 0) || 0;
   if (atMs <= last || (!always && atMs - last < 60 * 60 * 1000)) { return; }
   await modSeenStore.update(MOD_SEEN_KEY, atMs);
+}
+
+/** The bridge holds the slot now, so the mod no longer does. */
+async function forgetModSighting(context: vscode.ExtensionContext) {
+  await context.globalState.update(MOD_SEEN_KEY, undefined);
+  await context.globalState.update(MOD_SEEN_PROVISIONAL_KEY, undefined);
+}
+
+/** Once only, for an update from 0.11.0, which kept no sighting and deleted a
+ *  mod file when its session ended. The mod turned on in settings.json, with
+ *  the slot not the bridge's, counts as a provisional sighting, but only where
+ *  Claude Code can run the mod (the offer's own version floor), and not during
+ *  the Install grace day, which leaves the slot alone already and must still be
+ *  able to fall back when the mod never writes. */
+async function checkModOnceForUpgrade(context: vscode.ExtensionContext, settings: Record<string, unknown>) {
+  if (context.globalState.get<boolean>(MOD_SEEN_MIGRATED_KEY)) { return; }
+  if (context.globalState.get<string>(MOD_OFFER_KEY) === MOD_INSTALL
+    && Date.now() - (context.globalState.get<number>(MOD_OFFER_AT_KEY, 0) || 0) < MOD_GRACE_MS) { return; }
+  if (context.globalState.get<number>(MOD_SEEN_KEY) || !modPluginEnabled(settings)) {
+    await context.globalState.update(MOD_SEEN_MIGRATED_KEY, true);
+    return;
+  }
+  const found = await readClaudeVersion();
+  await context.globalState.update(MOD_SEEN_MIGRATED_KEY, true);
+  if (!found || !versionAtLeast(found.version, MOD_MIN_CLAUDE)) { return; }
+  await context.globalState.update(MOD_SEEN_KEY, Date.now());
+  await context.globalState.update(MOD_SEEN_PROVISIONAL_KEY, true);
 }
 
 /** True when settings.json enables the Brain Drain mod under any marketplace

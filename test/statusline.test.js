@@ -3127,10 +3127,62 @@ async function run(name, fn) {
       fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
       const c = ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3 * 86400000 });
       ext.activate(c);
+      await until(() => c.globalState.get(MIGRATED) === true);
       await settle();
       check('upgrader with the mod enabled and no mod file: slot untouched, no offer, no toast, sighting kept',
         !readSettings().statusLine && !offered() && !messages.some((m) => /status line connected/.test(m[1]))
           && c.globalState.get(SEEN) > 0 && c.globalState.get(MIGRATED) === true, JSON.stringify(messages));
+      outputLines.length = 0;
+      await registered['fuel-gauge.showBridgeStatus']();
+      const report = outputLines.join('\n');
+      check('Show Diagnostics names the guess as a guess, with the date it lapses',
+        /has not yet seen it write a session file/.test(report) && /asks for the status line as before/.test(report), report);
+    });
+
+    const PROV = 'fuel-gauge.modSeenProvisional';
+    await run('upgrade-check-waits-out-grace-day', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
+      const c = ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3600 * 1000 });
+      ext.activate(c);
+      // Long enough for `claude --version` to answer, were the check to run.
+      await until(() => c.globalState.get(MIGRATED) === true, 1000);
+      check('inside the Install grace day the one-time check waits, so the day can still fall back',
+        c.globalState.get(MIGRATED) === undefined && c.globalState.get(SEEN) === undefined && !readSettings().statusLine);
+    });
+
+    await run('upgrade-check-old-claude-no-sighting', async (ext) => {
+      fakeClaude('2.1.200');
+      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
+      const c = ctx();
+      ext.activate(c);
+      await until(() => c.globalState.get(MIGRATED) === true);
+      await settle();
+      check('a Claude Code older than the floor: no sighting, the old path runs',
+        c.globalState.get(SEEN) === undefined && !!readSettings().statusLine, JSON.stringify(messages));
+    });
+
+    await run('provisional-lapses-after-a-week', async (ext) => {
+      fakeClaude('2.1.330');
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 8 * 86400000, [PROV]: true, [MIGRATED]: true });
+      ext.activate(c);
+      await until(() => messages.length > 0);
+      check('turned on but no session file in a week: the guess lapses and the offer comes as before',
+        c.globalState.get(SEEN) === undefined && c.globalState.get(PROV) === undefined && offered(), JSON.stringify(messages));
+    });
+
+    await run('provisional-confirmed-by-a-file', async (ext) => {
+      const ws = workDir();
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000, [PROV]: true, [MIGRATED]: true });
+      ext.activate(c);
+      await settle();
+      sessionFile(ws, 'real');
+      fireConfigChange();
+      await settle();
+      check('a real mod file confirms the guess and replaces its time',
+        c.globalState.get(PROV) === undefined && c.globalState.get(SEEN) > Date.now() - 60000);
     });
 
     await run('upgrade-check-runs-once', async (ext) => {
