@@ -3098,7 +3098,6 @@ async function run(name, fn) {
     });
 
     // From the review of 23 Nov (MC-8383).
-    const MIGRATED = 'fuel-gauge.modSeenMigrated';
     const sessionFile = (ws, id, extra) => {
       const nowSec = Date.now() / 1000;
       const dir = path.join(TMPROOT, '.claude', extra && extra.folder || 'fuel-gauge');
@@ -3120,86 +3119,17 @@ async function run(name, fn) {
       return ws;
     };
 
-    // An upgrader from 0.11.0: no sighting was ever kept, and 0.11.0 deleted the
-    // mod's file when its session ended. The mod enabled in settings.json counts.
-    await run('upgrade-mod-enabled-keeps-slot', async (ext) => {
-      fakeClaude('2.1.330');
-      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
-      const c = ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3 * 86400000 });
-      ext.activate(c);
-      await until(() => c.globalState.get(MIGRATED) === true);
-      await settle();
-      check('upgrader with the mod enabled and no mod file: slot untouched, no offer, no toast, sighting kept',
-        !readSettings().statusLine && !offered() && !messages.some((m) => /status line connected/.test(m[1]))
-          && c.globalState.get(SEEN) > 0 && c.globalState.get(MIGRATED) === true, JSON.stringify(messages));
-      outputLines.length = 0;
-      await registered['fuel-gauge.showBridgeStatus']();
-      const report = outputLines.join('\n');
-      check('Show Diagnostics names the guess as a guess, with the date it lapses',
-        /has not yet seen it write a session file/.test(report) && /asks for the status line as before/.test(report), report);
-    });
 
-    const PROV = 'fuel-gauge.modSeenProvisional';
-    await run('upgrade-check-waits-out-grace-day', async (ext) => {
-      fakeClaude('2.1.330');
-      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
-      const c = ctxWith({ 'fuel-gauge.modOffer': 'Install the mod', 'fuel-gauge.modOfferAt': Date.now() - 3600 * 1000 });
-      ext.activate(c);
-      // Long enough for `claude --version` to answer, were the check to run.
-      await until(() => c.globalState.get(MIGRATED) === true, 1000);
-      check('inside the Install grace day the one-time check waits, so the day can still fall back',
-        c.globalState.get(MIGRATED) === undefined && c.globalState.get(SEEN) === undefined && !readSettings().statusLine);
-    });
 
-    await run('upgrade-check-old-claude-no-sighting', async (ext) => {
-      fakeClaude('2.1.200');
-      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
-      const c = ctx();
-      ext.activate(c);
-      await until(() => c.globalState.get(MIGRATED) === true);
-      await settle();
-      check('a Claude Code older than the floor: no sighting, the old path runs',
-        c.globalState.get(SEEN) === undefined && !!readSettings().statusLine, JSON.stringify(messages));
-    });
 
-    await run('provisional-lapses-after-a-week', async (ext) => {
-      fakeClaude('2.1.330');
-      empty();
-      const c = ctxWith({ [SEEN]: Date.now() - 8 * 86400000, [PROV]: true, [MIGRATED]: true });
-      ext.activate(c);
-      await until(() => messages.length > 0);
-      check('turned on but no session file in a week: the guess lapses and the offer comes as before',
-        c.globalState.get(SEEN) === undefined && c.globalState.get(PROV) === undefined && offered(), JSON.stringify(messages));
-    });
 
-    await run('provisional-confirmed-by-a-file', async (ext) => {
-      const ws = workDir();
-      empty();
-      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000, [PROV]: true, [MIGRATED]: true });
-      ext.activate(c);
-      await settle();
-      sessionFile(ws, 'real');
-      fireConfigChange();
-      await settle();
-      check('a real mod file confirms the guess and replaces its time',
-        c.globalState.get(PROV) === undefined && c.globalState.get(SEEN) > Date.now() - 60000);
-    });
 
-    await run('upgrade-check-runs-once', async (ext) => {
-      fakeClaude('2.1.330');
-      fs.writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: { 'brain-drain@brain-drain': true } }, null, 2) + '\n');
-      const c = ctxWith({ [MIGRATED]: true });
-      ext.activate(c);
-      await until(() => messages.length > 0);
-      check('after the one-time check, an enabled plugin alone is not a sighting (Connect cleared it, say)',
-        c.globalState.get(SEEN) === undefined && offered(), JSON.stringify(messages));
-    });
 
     await run('ended-mod-session-keeps-sighting', async (ext) => {
       const ws = workDir();
       empty();
       const old = Date.now() - 3 * 86400000;
-      const c = ctxWith({ [SEEN]: old, [MIGRATED]: true });
+      const c = ctxWith({ [SEEN]: old });
       ext.activate(c);
       await settle();
       const event = fireClaudeStart(ws);
@@ -3217,7 +3147,7 @@ async function run(name, fn) {
 
     await run('connect-clears-before-toast', async (ext) => {
       empty();
-      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000, [MIGRATED]: true });
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000 });
       ext.activate(c);
       await settle();
       answers = [() => new Promise(() => {})];
@@ -3232,7 +3162,7 @@ async function run(name, fn) {
       fs.mkdirSync(path.join(TMPROOT, '.claude', 'scripts'), { recursive: true });
       fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: bridgePath() } }, null, 2) + '\n');
       configStore['manageStatusLine'] = false;
-      const c = ctxWith({ [MIGRATED]: true });
+      const c = ctx();
       ext.activate(c);
       await settle();
       sessionFile(ws, 'panel', { folder: 'fuel-gauge-mod' });
@@ -3245,7 +3175,7 @@ async function run(name, fn) {
     await run('mod-quiet-then-writes-diagnostics', async (ext) => {
       const ws = workDir();
       empty();
-      const c = ctxWith({ [SEEN]: Date.now() - 3 * 86400000, [MIGRATED]: true });
+      const c = ctxWith({ [SEEN]: Date.now() - 3 * 86400000 });
       ext.activate(c);
       await settle();
       sessionFile(ws, 'monday');
@@ -3260,12 +3190,42 @@ async function run(name, fn) {
 
     await run('mod-quiet-age-in-minutes', async (ext) => {
       empty();
-      ext.activate(ctxWith({ [SEEN]: Date.now() - 5 * 60000, [MIGRATED]: true }));
+      ext.activate(ctxWith({ [SEEN]: Date.now() - 5 * 60000 }));
       await settle();
       outputLines.length = 0;
       await registered['fuel-gauge.showBridgeStatus']();
       const report = outputLines.join('\n');
       check('a sighting five minutes old reads "5 min ago", not "1 day"', /last noted 5 min ago/.test(report), report);
+    });
+
+    await run('mod-quiet-replace-clears', async (ext) => {
+      fakeClaude('2.1.330');
+      fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: '/x/mine.sh' } }, null, 2) + '\n');
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000 });
+      ext.activate(c);
+      await settle();
+      answers = ['Replace'];
+      await registered['fuel-gauge.setupStatusLine']();
+      await settle();
+      check('Connect, then Replace: the bridge holds the slot and the sighting is cleared',
+        readSettings().statusLine.command === bridgePath() && c.globalState.get(SEEN) === undefined, JSON.stringify(messages));
+    });
+
+    await run('future-stamped-mod-file-capped', async (ext) => {
+      const ws = workDir();
+      empty();
+      const c = ctxWith({ [SEEN]: Date.now() - 2 * 86400000 });
+      ext.activate(c);
+      await settle();
+      const file = sessionFile(ws, 'ahead');
+      const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      data.timestamp = Date.now() / 1000 + 86400;
+      fs.writeFileSync(file, JSON.stringify(data, null, 2));
+      fireConfigChange();
+      await settle();
+      const seen = c.globalState.get(SEEN);
+      check('a mod file stamped a day ahead: the sighting is recorded, and not later than now',
+        seen > Date.now() - 60000 && seen <= Date.now(), String(seen));
     });
 
     await run('mod-quiet-cancelled-replace-keeps-mark', async (ext) => {
